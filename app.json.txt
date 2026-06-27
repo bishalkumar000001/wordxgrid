@@ -1,0 +1,48 @@
+{
+  "name": "Word Grid Challenge Bot",
+  "description": "Telegram Word Grid Challenge game bot with leaderboards",
+  "keywords": ["telegram", "bot", "game", "python"],
+  "website": "",
+  "repository": "",
+  "stack": "heroku-24",
+  "buildpacks": [
+    { "url": "heroku/python" }
+  ],
+  "env": {
+    "BOT_TOKEN": {
+      "description": "Your Telegram Bot Token from @BotFather",
+      "required": true
+    },
+    "OWNER_ID": {
+      "description": "Your Telegram User ID (message @userinfobot to get it)",
+      "required": false,
+      "value": ""
+    },
+    "LOG_GROUP_ID": {
+      "description": "Telegram Group ID for bot logs (optional)",
+      "required": false,
+      "value": ""
+    },
+    "SUPPORT_CHANNEL": {
+      "description": "Your support channel link e.g. https://t.me/yourchannel",
+      "required": false,
+      "value": ""
+    }
+  },
+  "formation": {
+    "worker": {
+      "quantity": 1,
+      "size": "eco"
+    }
+  },
+  "addons": [],
+  "environments": {
+    "test": {
+      "formation": {
+        "worker": {
+          "quantity": 0
+        }
+      }
+    }
+  }
+}
