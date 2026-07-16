@@ -372,9 +372,16 @@ async def _do_start_game(bot, application, job_queue, chat_id, chat_title, user,
 
     await log_to_group(
         application,
-        f"🆕 New <b>{mode}</b> game\n"
-        f"👥 <b>{chat_title}</b> (<code>{chat_id}</code>)\n"
-        f"👤 <a href='tg://user?id={user.id}'>{display_name(user)}</a>",
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎮 <b>NEW {mode.upper()} GAME</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👥 <b>Chat:</b> {chat_title}\n"
+        f"🆔 <b>Chat ID:</b> <code>{chat_id}</code>\n\n"
+        
+        f"👤 <b>Name:</b> <a href='tg://user?id={user.id}'>{display_name(user)}</a>\n"
+        f"📛 <b>Username:</b> @{user.username if user.username else 'No Username'}\n"
+        f"🆔 <b>User ID:</b> <code>{user.id}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━"
     )
 
 
