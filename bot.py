@@ -204,74 +204,90 @@ async def update_grid_photo(
 
 
 def _reschedule_timeout(context, game_id: str, group_id: int):
+    # Remove previous timeout job
     for job in context.job_queue.get_jobs_by_name(f"timeout_{game_id}"):
         job.schedule_removal()
+
+    # Remove previous warning job
+    for job in context.job_queue.get_jobs_by_name(f"warning_{game_id}"):
+        job.schedule_removal()
+
+    # Schedule warning after 7 minutes
+    context.job_queue.run_once(
+        game_warning,
+        when=420,
+        data={
+            "game_id": game_id,
+            "group_id": group_id,
+        },
+        name=f"warning_{game_id}",
+    )
+
+    # Schedule timeout after 10 minutes
     context.job_queue.run_once(
         game_timeout,
         when=config.GAME_TIMEOUT_SECONDS,
-        data={"game_id": game_id, "group_id": group_id},
+        data={
+            "game_id": game_id,
+            "group_id": group_id,
+        },
         name=f"timeout_{game_id}",
     )
 
 
 # ─── Game timeout ─────────────────────────────────────────────────────────────
 
-async def game_timeout(context: ContextTypes.DEFAULT_TYPE):
-    data     = context.job.data
-    game_id  = data["game_id"]
+async def game_warning(context: ContextTypes.DEFAULT_TYPE):
+    data = context.job.data
+    game_id = data["game_id"]
     group_id = data["group_id"]
 
     game = db.get_game(game_id)
+
     if not game or not game["active"]:
         return
 
-    words     = [w for w in game["words"].split(",") if w]
-    found     = [w for w in game["found_words"].split(",") if w]
+    # Delete warning message if it exists
+    warning_msg_id = context.application.bot_data.pop(
+        f"warning_{game_id}",
+        None,
+    )
+
+    if warning_msg_id:
+        try:
+            await context.bot.delete_message(
+                group_id,
+                warning_msg_id,
+            )
+        except TelegramError:
+            pass
+
+    words = [w for w in game["words"].split(",") if w]
+    found = [w for w in game["found_words"].split(",") if w]
     remaining = [w for w in words if w not in found]
 
-    db.end_game(game_id)
+    if not remaining:
+        return
 
-    pin_msg_id = game.get("pin_msg_id")
-    if pin_msg_id and found:
-        await update_grid_photo(context.bot, group_id, pin_msg_id, game, found)
+    # Pick a random remaining word
+    hint_word = random.choice(remaining)
 
-    if pin_msg_id:
-        try:
-            await context.bot.unpin_chat_message(group_id, pin_msg_id)
-        except TelegramError as e:
-            logger.warning("Unpin error: %s", e)
+    # Reveal first 2 letters
+    hint = make_hint_for_word(hint_word, revealed=2)
 
-    scores = db.get_game_scores(game_id)
-    lines  = ["⏰ <b>TIME'S UP!</b> 10 minutes are up.\n"]
-    if remaining:
-        lines.append(f"❌ Unfound words: <b>{', '.join(remaining)}</b>\n")
-    else:
-        lines.append("🎉 All words were found!\n")
-
-    lines.append(f"📊 Words Found: <b>{len(found)}/{len(words)}</b>")
-
-    if scores:
-        lines.append("\n🏆 <b>Scores:</b>")
-        for i, row in enumerate(scores, 1):
-            n     = row.get("first_name") or f"User{row['user_id']}"
-            medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
-            lines.append(f"{medal} <b>{n}</b> — {row['total_points']} pts")
-    else:
-        lines.append("No words were found this round.")
-
-    await context.bot.send_message(
+    warning_msg = await context.bot.send_message(
         group_id,
-        "\n".join(lines),
+        "━━━━━━━━━━━━━━━━━━\n"
+        "⚠️ <b>GAME WARNING</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "⏰ <b>Only 3 minutes remaining!</b>\n\n"
+        f"💡 <b>Free Hint:</b>\n<code>{hint}</code>\n\n"
+        "🎯 Guess any word to reset the timer!",
         parse_mode=constants.ParseMode.HTML,
-        reply_markup=play_again_keyboard(group_id),
     )
 
-    await log_to_group(
-        context.application,
-        f"🕹 Game timed out in <code>{group_id}</code>. "
-        f"Words: {len(words)}, Found: {len(found)}",
-    )
-
+    # Save warning message id
+    context.application.bot_data[f"warning_{game_id}"] = warning_msg.message_id
 
 # ─── /start ───────────────────────────────────────────────────────────────────
 
@@ -392,11 +408,25 @@ async def _do_start_game(bot, application, job_queue, chat_id, chat_title, user,
             parse_mode=constants.ParseMode.HTML,
         )
 
-    # Start timeout job
+    # Start warning job (7 minutes)
+    job_queue.run_once(
+        game_warning,
+        when=420,
+        data={
+            "game_id": game_id,
+            "group_id": chat_id,
+        },
+        name=f"warning_{game_id}",
+    )
+
+    # Start timeout job (10 minutes)
     job_queue.run_once(
         game_timeout,
         when=config.GAME_TIMEOUT_SECONDS,
-        data={"game_id": game_id, "group_id": chat_id},
+        data={
+            "game_id": game_id,
+            "group_id": chat_id,
+        },
         name=f"timeout_{game_id}",
     )
 
@@ -559,11 +589,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db.add_score(user.id, chat.id, game["game_id"], text, points)
 
+    # Delete warning message if it exists
+    warning_msg_id = context.application.bot_data.pop(
+        f"warning_{game['game_id']}",
+        None,
+    )
+
+    if warning_msg_id:
+        try:
+            await context.bot.delete_message(
+                chat.id,
+                warning_msg_id,
+            )
+        except TelegramError:
+            pass
+
     now_found = found + [text]
     remaining = [w for w in words if w not in now_found]
-    name      = display_name(user)
+    name = display_name(user)
 
-    # Reset 10-min countdown on every correct guess
+    # Reset warning timer + timeout timer
     _reschedule_timeout(context, game["game_id"], chat.id)
 
     pin_msg_id = game.get("pin_msg_id") or game.get("message_id")
@@ -582,7 +627,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_parts.append("\n🎉 <b>GAME COMPLETE!</b> All words found! 🥳")
         db.end_game(game["game_id"])
 
-        for job in context.job_queue.get_jobs_by_name(f"timeout_{game['game_id']}"):
+        # Cancel timeout job
+        for job in context.job_queue.get_jobs_by_name(
+            f"timeout_{game['game_id']}"
+        ):
+            job.schedule_removal()
+
+        # Cancel warning job
+        for job in context.job_queue.get_jobs_by_name(
+            f"warning_{game['game_id']}"
+        ):
             job.schedule_removal()
 
         # Reply instantly first, then update grid + unpin in background
@@ -811,8 +865,33 @@ async def cmd_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remaining = [w for w in words if w not in found]
 
     db.end_game(game["game_id"])
-    for job in context.job_queue.get_jobs_by_name(f"timeout_{game['game_id']}"):
+
+    # Remove timeout job
+    for job in context.job_queue.get_jobs_by_name(
+        f"timeout_{game['game_id']}"
+    ):
         job.schedule_removal()
+
+    # Remove warning job
+    for job in context.job_queue.get_jobs_by_name(
+        f"warning_{game['game_id']}"
+    ):
+        job.schedule_removal()
+
+    # Delete warning message
+    warning_msg_id = context.application.bot_data.pop(
+        f"warning_{game['game_id']}",
+        None,
+    )
+
+    if warning_msg_id:
+        try:
+            await context.bot.delete_message(
+                chat.id,
+                warning_msg_id,
+            )
+        except TelegramError:
+            pass
 
     pin_msg_id = game.get("pin_msg_id") or game.get("message_id")
     if pin_msg_id and found:
