@@ -343,13 +343,22 @@ async def _do_start_game(bot, application, job_queue, chat_id, chat_title, user,
     )
     caption   = build_caption(words, [], mode)
 
-    photo_msg = await bot.send_photo(
-        chat_id=chat_id,
-        photo=io.BytesIO(img_bytes),
-        caption=caption,
-        parse_mode=constants.ParseMode.HTML,
-        reply_markup=_grid_keyboard(),
-    )
+    try:
+        photo_msg = await bot.send_photo(
+            chat_id=chat_id,
+            photo=io.BytesIO(img_bytes),
+            caption=caption,
+            parse_mode=constants.ParseMode.HTML,
+            reply_markup=_grid_keyboard(),
+        )
+    except TelegramError:
+        await bot.send_message(
+            chat_id,
+            "⚠️ <b>I can't start the game!</b>\n\n"
+            "Please give me the <b>Send Photos</b> permission and try again with /new.",
+            parse_mode=constants.ParseMode.HTML,
+        )
+        return
 
     db.update_game_message(game_id, photo_msg.message_id)
 
