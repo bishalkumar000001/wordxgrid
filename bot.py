@@ -330,19 +330,22 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── Core game start ──────────────────────────────────────────────────────────
 
 async def _do_start_game(bot, application, job_queue, chat_id, chat_title, user, mode):
-    words   = get_words_for_mode(mode)
+    words = get_words_for_mode(mode)
     game_id = str(uuid.uuid4())
 
-    grid_size    = 10 if mode == "easy" else 12
+    grid_size = 10 if mode == "easy" else 12
     grid, placed = build_grid(words, size=grid_size)
-    db.create_game(game_id, chat_id, mode, words, grid=grid, placed=placed)
 
     img_bytes = render_grid_image(
-        grid, title="WORD GRID CHALLENGE",
-        placed_words=placed, found_words=[], word_order=words,
+        grid,
+        title="WORD GRID CHALLENGE",
+        placed_words=placed,
+        found_words=[],
+        word_order=words,
     )
-    caption   = build_caption(words, [], mode)
+    caption = build_caption(words, [], mode)
 
+    # Try to send the game image first
     try:
         photo_msg = await bot.send_photo(
             chat_id=chat_id,
@@ -355,13 +358,24 @@ async def _do_start_game(bot, application, job_queue, chat_id, chat_title, user,
         await bot.send_message(
             chat_id,
             "⚠️ <b>I can't start the game!</b>\n\n"
-            "Please give me the <b>Send Photos</b> permission and try again with /new.",
+            "Please give me the <b>Send Photos</b> permission and try again with <code>/new</code>.",
             parse_mode=constants.ParseMode.HTML,
         )
         return
 
+    # Create the game ONLY after the photo was sent successfully
+    db.create_game(
+        game_id,
+        chat_id,
+        mode,
+        words,
+        grid=grid,
+        placed=placed,
+    )
+
     db.update_game_message(game_id, photo_msg.message_id)
 
+    # Try to pin the game (don't fail if permission is missing)
     try:
         await bot.pin_chat_message(
             chat_id=chat_id,
@@ -369,9 +383,16 @@ async def _do_start_game(bot, application, job_queue, chat_id, chat_title, user,
             disable_notification=True,
         )
         db.update_game_pin(game_id, photo_msg.message_id)
-    except TelegramError as e:
-        logger.warning("Could not pin message: %s", e)
 
+    except TelegramError:
+        await bot.send_message(
+            chat_id,
+            "📌 <b>Game started successfully!</b>\n\n"
+            "I couldn't pin the game because I don't have the <b>Pin Messages</b> permission.",
+            parse_mode=constants.ParseMode.HTML,
+        )
+
+    # Start timeout job
     job_queue.run_once(
         game_timeout,
         when=config.GAME_TIMEOUT_SECONDS,
@@ -379,6 +400,7 @@ async def _do_start_game(bot, application, job_queue, chat_id, chat_title, user,
         name=f"timeout_{game_id}",
     )
 
+    # Log to your log group
     await log_to_group(
         application,
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -386,7 +408,6 @@ async def _do_start_game(bot, application, job_queue, chat_id, chat_title, user,
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"👥 <b>Chat:</b> {chat_title}\n"
         f"🆔 <b>Chat ID:</b> <code>{chat_id}</code>\n\n"
-        
         f"👤 <b>Name:</b> <a href='tg://user?id={user.id}'>{display_name(user)}</a>\n"
         f"📛 <b>Username:</b> @{user.username if user.username else 'No Username'}\n"
         f"🆔 <b>User ID:</b> <code>{user.id}</code>\n"
