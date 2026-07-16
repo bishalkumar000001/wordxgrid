@@ -289,6 +289,62 @@ async def game_warning(context: ContextTypes.DEFAULT_TYPE):
     # Save warning message id
     context.application.bot_data[f"warning_{game_id}"] = warning_msg.message_id
 
+async def game_timeout(context: ContextTypes.DEFAULT_TYPE):
+    data     = context.job.data
+    game_id  = data["game_id"]
+    group_id = data["group_id"]
+
+    game = db.get_game(game_id)
+    if not game or not game["active"]:
+        return
+
+    words     = [w for w in game["words"].split(",") if w]
+    found     = [w for w in game["found_words"].split(",") if w]
+    remaining = [w for w in words if w not in found]
+
+    db.end_game(game_id)
+
+    pin_msg_id = game.get("pin_msg_id")
+    if pin_msg_id and found:
+        await update_grid_photo(context.bot, group_id, pin_msg_id, game, found)
+
+    if pin_msg_id:
+        try:
+            await context.bot.unpin_chat_message(group_id, pin_msg_id)
+        except TelegramError as e:
+            logger.warning("Unpin error: %s", e)
+
+    scores = db.get_game_scores(game_id)
+    lines  = ["⏰ <b>TIME'S UP!</b> 10 minutes are up.\n"]
+    if remaining:
+        lines.append(f"❌ Unfound words: <b>{', '.join(remaining)}</b>\n")
+    else:
+        lines.append("🎉 All words were found!\n")
+
+    lines.append(f"📊 Words Found: <b>{len(found)}/{len(words)}</b>")
+
+    if scores:
+        lines.append("\n🏆 <b>Scores:</b>")
+        for i, row in enumerate(scores, 1):
+            n     = row.get("first_name") or f"User{row['user_id']}"
+            medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
+            lines.append(f"{medal} <b>{n}</b> — {row['total_points']} pts")
+    else:
+        lines.append("No words were found this round.")
+
+    await context.bot.send_message(
+        group_id,
+        "\n".join(lines),
+        parse_mode=constants.ParseMode.HTML,
+        reply_markup=play_again_keyboard(group_id),
+    )
+
+    await log_to_group(
+        context.application,
+        f"🕹 Game timed out in <code>{group_id}</code>. "
+        f"Words: {len(words)}, Found: {len(found)}",
+    )
+
 # ─── /start ───────────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
