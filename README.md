@@ -1,161 +1,200 @@
-# 🎮 Word Grid Challenge Bot
+# VelocityBots — WordGrid + Paheli (Riddles) Game Bot
 
-A feature-rich Telegram group game bot where players find hidden words in a letter grid — with live color highlights, a global leaderboard, hints, and timed gameplay.
+A complete Telegram game bot with two games:
+- **🔤 Word Grid** — Find hidden words in a letter grid
+- **🧩 Paheli** — Solve riddles in Hindi & English
 
----
+## Files
 
-## 📸 How It Looks
-
-- Bot sends a **word grid image** pinned to the group
-- Below the image: numbered word list with first-letter hints (e.g. `W--- (4)`)
-- When a word is guessed, its cells **light up in color** on the grid image
-- After 10 minutes or all words found, grid is **unpinned automatically**
-
----
-
-## ✨ Features
-
-- 🟢 **Easy mode** (`/new`) and 🔴 **Hard mode** (`/new_hard`)
-- 🎨 **Live color highlights** — each found word gets its own color in the grid
-- ⏰ **10-minute timer** — auto-closes and unpins on timeout
-- 🏆 **Scoring** — 4 pts (1st word) · 3 pts (others) · 5 pts (last word)
-- 🔍 **Hints** — 2 per game, sent privately only to the person who asked
-- 📊 **Global leaderboard** across all groups — daily / weekly / monthly / yearly / all-time
-- 💾 **Persistent data** — scores and leaderboard survive bot updates/restarts
-- 📌 **Auto-pin / auto-unpin** — grid pinned on start, unpinned on end
+| File | Purpose |
+|------|---------|
+| `bot.py` | Main bot entry point (updated with `/game` command + Paheli import) |
+| `paheli.py` | Complete Paheli game module (plug-and-play) |
+| `paheli_db.py` | MongoDB operations for Paheli |
+| `riddles.json` | 200 riddles (English & Hindi, all categories) |
+| `config.py` | Bot configuration |
+| `database.py` | WordGrid MongoDB operations |
+| `wordgrid.py` | Grid generation & rendering |
+| `words.py` | Word lists |
 
 ---
 
-## 🃏 Word Length Sequence
+## Setup
 
-### Easy Mode (`/new`)
-| Words | Length |
-|-------|--------|
-| 1 – 4  | 4 letters |
-| 5 – 7  | 5 letters |
-| 8 – 9  | 6 letters |
-| 10     | 7 letters |
-| 11 – 12 | 8 letters |
+### 1. Add environment variables
 
-### Hard Mode (`/new_hard`)
-| Words | Length |
-|-------|--------|
-| 1 – 4  | 6 letters |
-| 5 – 6  | 7 letters |
-| 7 – 8  | 8 letters |
-| 9 – 10  | 9 letters |
-| 11 – 12 | 10 letters |
+Copy `.env.example` to `.env` and fill in your values:
+
+```bash
+BOT_TOKEN=your_telegram_bot_token
+MONGO_URL=mongodb+srv://user:pass@cluster.mongodb.net/
+OWNER_ID=your_telegram_id
+LOG_GROUP_ID=-100your_log_group_id   # optional
+SUPPORT_CHANNEL=https://t.me/your_group  # optional
+SUDO_USERS=id1,id2  # comma-separated admin IDs
+```
+
+### 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Run locally
+
+```bash
+python bot.py
+```
 
 ---
 
-## 🤖 Commands
+## Heroku Deployment
 
+### Using existing Heroku app
+
+Since your bot is already on Heroku, just add/update these files:
+
+1. Copy the new files to your Heroku project directory:
+   - `paheli.py`
+   - `paheli_db.py`
+   - `riddles.json`
+
+2. Replace `bot.py` with the updated version.
+
+3. Update `requirements.txt` (add `python-dotenv>=1.0.0`).
+
+4. Push to Heroku:
+```bash
+git add paheli.py paheli_db.py riddles.json bot.py requirements.txt
+git commit -m "Add Paheli riddle game + /game command"
+git push heroku main
+```
+
+5. Restart dyno:
+```bash
+heroku restart
+```
+
+---
+
+## Commands
+
+### Game Selector
 | Command | Description |
 |---------|-------------|
-| `/new` | Start an easy game |
-| `/new_hard` | Start a hard game |
-| `/hint` | Get a hint (sent privately, 2 per game) |
-| `/leaderboard` or `/lb` | Global leaderboard (all-time) |
-| `/lb day` | Today's top players |
-| `/lb week` | This week's top players |
-| `/lb month` | This month's top players |
-| `/lb year` | This year's top players |
-| `/stats` | Your personal global rank and points |
-| `/help` | Show all commands |
-| `/start` | Welcome message |
+| `/game` | Show game picker (WordGrid or Paheli) |
+
+### WordGrid
+| Command | Description |
+|---------|-------------|
+| `/new` | Start easy Word Grid (10×10) |
+| `/new_hard` | Start hard Word Grid (12×12) |
+| `/hint` | Get a word hint |
+| `/end` | End game (admins only) |
+| `/lb` | Word Grid leaderboard |
+| `/stats` | Your WordGrid stats |
+
+### Paheli (Riddles)
+| Command | Description |
+|---------|-------------|
+| `/paheli` | Start a new riddle |
+| `/answer TEXT` | Answer the riddle |
+| `/hint` | Get a hint (free first, costs token after) |
+| `/skip` | Skip riddle (costs Skip Token) |
+| `/daily` | Claim daily reward |
+| `/weekly` | Claim weekly reward |
+| `/profile` | Your profile (level, XP, coins, gems) |
+| `/inventory` | Your items |
+| `/shop` | Buy hints, skips, boosts, chests |
+| `/settings` | Change language/difficulty preference |
+| `/challenge` | PvP riddle challenge (reply to a user) |
+| `/clan` | Clan system |
+| `/plb` | Paheli leaderboard |
+| `/paheli_stats` | Paheli stats |
+| `/paheli_help` | Full paheli help |
+
+### Admin (SUDO_USERS only)
+| Command | Description |
+|---------|-------------|
+| `/addriddle` | Add a custom riddle |
+| `/deleteriddle ID` | Delete a custom riddle |
+| `/pban USER_ID` | Ban user from Paheli |
+| `/punban USER_ID` | Unban user from Paheli |
+| `/ridstats` | Admin statistics |
+| `/broadcast` | Broadcast to all groups |
 
 ---
 
-## 🚀 Deploy to Heroku
+## Player System
 
-### Step 1 — Create your bot
-1. Message [@BotFather](https://t.me/botfather) → `/newbot`
-2. Copy your **Bot Token**
-3. Send `/setprivacy` → select your bot → set to **Disabled** *(lets bot read group messages)*
+### XP & Levels
+- 16 levels (Novice → God of Puzzles)
+- XP earned every riddle solved
+- 2× XP Boost available in shop
 
-### Step 2 — Push to GitHub
-Upload all these files to a **new GitHub repository** (no subfolder):
+### Economy
+- 🪙 **Coins** — earned by solving riddles, daily rewards
+- 💎 **Gems** — rare, earned via weekly rewards + streaks
+- Daily streak bonus: +25 coins/day (capped at 500)
+- Gem every 7-day streak
+
+### Points by Difficulty
+| Difficulty | Points | No-Hint Bonus |
+|-----------|--------|---------------|
+| 🟢 Easy | 10 | 12 |
+| 🟡 Medium | 25 | 30 |
+| 🔴 Hard | 50 | 60 |
+| 💀 Legendary | 100 | 125 |
+
+### Shop Items
+| Item | Cost |
+|------|------|
+| 1 Hint Token | 50 🪙 |
+| 5 Hints Pack | 200 🪙 |
+| Skip Token | 75 🪙 |
+| 3 Skips Pack | 200 🪙 |
+| Lucky Wheel | 100 🪙 |
+| Silver Chest | 150 🪙 |
+| Gold Chest | 400 🪙 |
+| 2× XP Boost (1h) | 500 🪙 |
+
+---
+
+## Adding More Riddles
+
+Edit `riddles.json` and add entries following this format:
+
+```json
+{
+  "id": 201,
+  "question": "Your riddle question here?",
+  "answer": "answer in lowercase",
+  "hints": ["hint 1", "hint 2", "hint 3"],
+  "category": "general",
+  "difficulty": "easy",
+  "language": "en",
+  "points": 10
+}
 ```
-bot.py
-config.py
-database.py
-wordgrid.py
-words.py
-requirements.txt
-Procfile
-runtime.txt
-app.json
-```
 
-### Step 3 — Deploy on Heroku
-1. Go to [heroku.com](https://heroku.com) → **New App**
-2. Connect your GitHub repo under **Deploy** tab
-3. Go to **Settings** → **Buildpacks** → Add **`heroku/python`**
-4. Go to **Settings** → **Config Vars** → add:
+**Categories:** `general`, `movies`, `sports`, `science`, `math`, `tech`, `history`  
+**Difficulties:** `easy` (10pts), `medium` (25pts), `hard` (50pts), `legendary` (100pts)  
+**Languages:** `en` (English), `hi` (Hindi)
 
-| Key | Value |
-|-----|-------|
-| `BOT_TOKEN` | Your bot token from BotFather |
-| `OWNER_ID` | Your Telegram user ID (optional) |
-| `LOG_GROUP_ID` | Group ID for logs (optional) |
-| `SUPPORT_CHANNEL` | Your support channel link (optional) |
-
-5. Go to **Deploy** tab → click **Deploy Branch**
-6. Go to **Resources** tab → turn **ON** the `worker` dyno (turn OFF the `web` dyno if shown)
-
-### Step 4 — Add bot to your group
-1. Add the bot to a Telegram group
-2. Make it **Admin** with **pin messages** permission
-3. Send `/new` to start your first game!
+Or use the admin command `/addriddle` directly in your Telegram group.
 
 ---
 
-## 🗂 File Structure
+## MongoDB Collections
 
-```
-├── bot.py           # Main bot — all commands and game logic
-├── config.py        # Environment variable config
-├── database.py      # SQLite database — scores, games, users
-├── wordgrid.py      # Grid generator + image renderer (Pillow)
-├── words.py         # Word lists for lengths 4–10
-├── requirements.txt # Python dependencies
-├── Procfile         # Heroku worker dyno config
-├── runtime.txt      # Python version (3.12.9)
-└── app.json         # Heroku app manifest
-```
+The Paheli module uses these collections in the **same `wordgrid` database**:
+- `paheli_players` — Player profiles
+- `paheli_sessions` — Active/completed riddle sessions
+- `paheli_scores` — Score history
+- `paheli_challenges` — PvP challenges
+- `paheli_clans` — Clan data
+- `paheli_riddles` — Custom riddles (added via /addriddle)
+- `paheli_cooldowns` — Anti-spam cooldowns
+- `paheli_banned` — Banned users
 
----
-
-## ⚙️ Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `BOT_TOKEN` | ✅ Yes | Telegram bot token from @BotFather |
-| `OWNER_ID` | No | Your Telegram user ID |
-| `LOG_GROUP_ID` | No | Group ID for bot event logs |
-| `SUPPORT_CHANNEL` | No | Support channel shown in /start |
-| `DB_PATH` | No | Path for SQLite file (default: `wordgrid.db`) |
-
----
-
-## ⚠️ Important Notes
-
-- **Heroku filesystem resets** on dyno restart — SQLite data will be lost unless you use a persistent storage addon or an external database
-- The bot requires **Admin rights** in the group to pin/unpin messages
-- Players must type words exactly as-is (case insensitive) in the group chat to score points
-- Only **one game per group** can run at a time
-
----
-
-## 🛠 Tech Stack
-
-- **Python 3.12**
-- **python-telegram-bot 21.6** (async, job queue)
-- **Pillow** — grid image generation with RGBA color overlays
-- **SQLite** — persistent storage via `database.py`
-
----
-
-## 📄 License
-
-MIT — free to use, modify, and deploy.
+No separate database needed — all in one.

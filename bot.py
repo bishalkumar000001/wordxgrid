@@ -23,6 +23,9 @@ from wordgrid import (
     get_hint_text, make_hint_for_word,
 )
 
+# ── Import Paheli module ───────────────────────────────────────────────────────
+from paheli import register_paheli_handlers
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -88,7 +91,6 @@ PERIOD_LABELS = {
     "all":   "All Time",
 }
 
-# Colorful emoji prefix per period button
 _PERIOD_EMOJI = {
     "day":   "🟡",
     "week":  "🟠",
@@ -357,19 +359,18 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rows.append([InlineKeyboardButton("🌐 Support Group", url=config.SUPPORT_CHANNEL)])
         await update.message.reply_text(
             f"👋 Hello <b>{user.first_name}</b>!\n\n"
-            "🎮 I'm the <b>Word Grid Challenge</b> bot!\n"
-            "Add me to a group and use:\n"
-            "• /new — Start an easy game\n"
-            "• /new_hard — Start a hard game\n"
-            "• /hint — Get a hint\n"
-            "• /lb — Global leaderboard\n"
+            "🎮 I'm <b>VelocityBots</b>! Add me to a group and use:\n"
+            "• /game — Choose your game (Word Grid or Paheli)\n"
+            "• /new — Start a Word Grid game\n"
+            "• /paheli — Start a riddle game\n"
             "• /help — All commands",
             parse_mode=constants.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(rows) if rows else None,
         )
     else:
         await update.message.reply_text(
-            "🎮 Word Grid Challenge is ready! Use /new to start a game.",
+            "🎮 VelocityBots is ready!\n"
+            "Use /game to choose a game, or /new for Word Grid, /paheli for riddles.",
         )
 
 
@@ -380,20 +381,30 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if config.SUPPORT_CHANNEL:
         rows.append([InlineKeyboardButton("🌐 Support Group", url=config.SUPPORT_CHANNEL)])
     await update.message.reply_text(
-        "🎮 <b>Word Grid Challenge — Commands</b>\n\n"
+        "🎮 <b>VelocityBots — Commands</b>\n\n"
+        "━ <b>Game Selector</b> ━\n"
+        "/game — Choose Word Grid or Paheli 🎮\n\n"
+        "━ <b>Word Grid</b> ━\n"
         "/new — Start an easy game (10×10)\n"
         "/new_hard — Start a hard game (12×12)\n"
-        "/end — End current game early (admins only)\n"
-        "/hint — Get a hint (only you see it)\n"
-        "/lb — Global leaderboard\n"
-        "/lb day · week · month · year\n"
-        "/stats — Your personal stats\n"
-        "/help — This message\n\n"
+        "/end — End current game (admins only)\n"
+        "/hint — Get a word grid hint\n"
+        "/lb — Word Grid leaderboard\n"
+        "/stats — Your Word Grid stats\n\n"
+        "━ <b>Paheli (Riddles)</b> ━\n"
+        "/paheli — Start a riddle\n"
+        "/answer — Answer a riddle\n"
+        "/daily — Daily reward\n"
+        "/weekly — Weekly reward\n"
+        "/profile — Your paheli profile\n"
+        "/shop — Buy hints, skips & more\n"
+        "/inventory — Your items\n"
+        "/settings — Language & difficulty\n"
+        "/plb — Paheli leaderboard\n"
+        "/paheli_help — Full paheli help\n\n"
         "📌 Grid is pinned when game starts.\n"
-        "🎨 Found words get cut by a strikethrough line!\n"
-        "⏰ Timer resets 10 min on every correct guess.\n"
-        "🏆 Easy: 4 (1st) · 3 (others) · 5 (last) — Total 39 pts\n"
-        "🏆 Hard: 4 (1st) · 4 (others) · 6 (last) — Total 50 pts",
+        "🎨 Found words get strikethrough!\n"
+        "⏰ Timer resets on every correct guess.\n",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(rows) if rows else None,
     )
@@ -999,7 +1010,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text(
-        f"📊 <b>Your Global Stats</b>\n\n"
+        f"📊 <b>Your Word Grid Stats</b>\n\n"
         f"🌍 Rank: <b>#{rank}</b>\n"
         f"⭐ Total Points: <b>{user_row['total_points']}</b>\n"
         f"🔤 Words Found: <b>{user_row.get('words_found', 0)}</b>\n"
@@ -1017,7 +1028,6 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ You are not authorised to use this command.")
         return
 
-    # Message to broadcast: text after /broadcast, OR the replied-to message
     broadcast_text = None
     reply_msg      = update.message.reply_to_message
 
@@ -1060,13 +1070,13 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except TelegramError as e:
             err = str(e).lower()
             if "bot was kicked" in err or "chat not found" in err or "blocked" in err:
-                db.remove_group(chat_id)   # clean up stale group
+                db.remove_group(chat_id)
                 blocked += 1
             else:
                 failed += 1
             logger.warning("Broadcast failed for %s: %s", chat_id, e)
 
-        await asyncio.sleep(0.05)   # stay within rate limits
+        await asyncio.sleep(0.05)
 
     await status_msg.edit_text(
         f"📡 <b>Broadcast Complete!</b>\n\n"
@@ -1099,7 +1109,6 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
     if chat.type not in ("group", "supergroup"):
         return
 
-    # Bot joined / was added
     if old_status in ("left", "kicked", "restricted") and new_status in ("member", "administrator"):
         try:
             count = await context.bot.get_chat_member_count(chat.id)
@@ -1128,7 +1137,6 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
             f"➕ Added by: {added_by_str}",
         )
 
-    # Bot was removed / kicked
     elif old_status in ("member", "administrator") and new_status in ("left", "kicked"):
         db.remove_group(chat.id)
         await log_to_group(
@@ -1163,6 +1171,7 @@ def main():
         .build()
     )
 
+    # ── WordGrid handlers ─────────────────────────────────────────────────────
     app.add_handler(CommandHandler("start",               cmd_start))
     app.add_handler(CommandHandler("help",                cmd_help))
     app.add_handler(CommandHandler("new",                 cmd_new))
@@ -1179,13 +1188,18 @@ def main():
 
     app.add_handler(ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
 
+    # WordGrid message handler — group=0 (higher priority, runs first)
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
         handle_message,
-    ))
+    ), group=0)
+
+    # ── Paheli handlers (group=1 for message handler, won't conflict) ─────────
+    register_paheli_handlers(app)
+
     app.add_error_handler(error_handler)
 
-    logger.info("Bot starting…")
+    logger.info("VelocityBots starting… (WordGrid + Paheli)")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
