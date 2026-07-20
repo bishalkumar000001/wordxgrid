@@ -908,6 +908,8 @@ async def cmd_inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active_boost = ""
     if player.get("xp_boost_until"):
         boost_until = player["xp_boost_until"]
+        if boost_until.tzinfo is None:
+            boost_until = boost_until.replace(tzinfo=timezone.utc)
         if boost_until > datetime.now(timezone.utc):
             remaining = (boost_until - datetime.now(timezone.utc)).seconds // 60
             active_boost = f"\n⚡ <b>2× XP Boost:</b> {remaining}m remaining"

@@ -15,6 +15,13 @@ from pymongo.errors import DuplicateKeyError
 
 logger = logging.getLogger(__name__)
 
+
+def _aware(dt) -> datetime:
+    """Make a datetime timezone-aware (UTC). PyMongo returns naive datetimes."""
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 
 _client: Optional[MongoClient] = None
@@ -181,7 +188,7 @@ def grant_xp_coins(user_id: int, xp: int, coins: int, reason: str = "") -> dict:
 
     # Check XP boost
     boost = 1
-    if doc.get("xp_boost_until") and doc["xp_boost_until"] > datetime.now(timezone.utc):
+    if doc.get("xp_boost_until") and _aware(doc["xp_boost_until"]) > datetime.now(timezone.utc):
         boost = 2
 
     actual_xp = xp * boost
@@ -586,7 +593,7 @@ def check_cooldown(user_id: int, action: str, seconds: int) -> int:
     doc = db.paheli_cooldowns.find_one({"user_id": user_id, "action": action})
     if not doc:
         return 0
-    remaining = (doc["expires_at"] - datetime.now(timezone.utc)).total_seconds()
+    remaining = (_aware(doc["expires_at"]) - datetime.now(timezone.utc)).total_seconds()
     return max(0, int(remaining))
 
 
