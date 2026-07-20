@@ -119,15 +119,13 @@ def _normalise(text: str) -> str:
     return text
 
 
-def _answers_match(user_input: str, correct: str) -> bool:
-    u = _normalise(user_input)
-    c = _normalise(correct)
+def _check_single(u: str, c: str) -> bool:
+    """Check user input against one accepted answer string."""
+    c = _normalise(c)
     if u == c:
         return True
-    # Also allow without spaces (for multi-word answers)
     if u.replace(" ", "") == c.replace(" ", ""):
         return True
-    # Partial match for long answers (>3 words): allow if 80% words match
     c_words = c.split()
     if len(c_words) >= 3:
         u_words = set(u.split())
@@ -135,6 +133,21 @@ def _answers_match(user_input: str, correct: str) -> bool:
         if matched / len(c_words) >= 0.8:
             return True
     return False
+
+
+def _answers_match(user_input: str, correct) -> bool:
+    """Accept correct as a string OR a list of accepted answers (Hinglish + English)."""
+    u = _normalise(user_input)
+    if isinstance(correct, list):
+        return any(_check_single(u, c) for c in correct)
+    return _check_single(u, correct)
+
+
+def _primary_answer(correct) -> str:
+    """Return the first (primary/display) answer from a string or list."""
+    if isinstance(correct, list):
+        return correct[0]
+    return correct
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -373,7 +386,7 @@ async def _paheli_timeout(context: ContextTypes.DEFAULT_TYPE):
             group_id,
             f"⏰ <b>Time's Up!</b>\n\n"
             f"❌ Nobody solved the riddle in time.\n\n"
-            f"🔑 <b>Answer:</b> <code>{riddle['answer'].title()}</code>\n\n"
+            f"🔑 <b>Answer:</b> <code>{_primary_answer(riddle['answer']).title()}</code>\n\n"
             f"Use /paheli to try the next one! 🎯",
             parse_mode=constants.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([[
@@ -442,7 +455,7 @@ async def paheli_answer_handler(update: Update, context: ContextTypes.DEFAULT_TY
         f"🎉 <b>CORRECT ANSWER!</b>",
         "━━━━━━━━━━━━━━━━━━\n",
         f"🏆 <b>{name}</b> solved the riddle! 🎊\n",
-        f"🔑 <b>Answer:</b> <code>{riddle['answer'].title()}</code>",
+        f"🔑 <b>Answer:</b> <code>{_primary_answer(riddle['answer']).title()}</code>",
         f"{d_emoji} <b>Difficulty:</b> {difficulty.title()}",
         f"⭐ <b>Points:</b> +{points}{no_hint_bonus}",
         f"🔮 <b>XP:</b> +{reward.get('xp_gained', 0)}",
@@ -665,7 +678,7 @@ async def cmd_paheli_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"⏭ <b>Riddle Skipped!</b>\n\n"
-        f"🔑 <b>Answer was:</b> <code>{riddle['answer'].title()}</code>\n\n"
+        f"🔑 <b>Answer was:</b> <code>{_primary_answer(riddle['answer']).title()}</code>\n\n"
         f"Use /paheli for the next riddle!",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[
@@ -704,7 +717,7 @@ async def cb_paheli_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await query.edit_message_text(
             f"⏭ <b>Riddle Skipped!</b>\n"
-            f"🔑 <b>Answer:</b> <code>{riddle['answer'].title()}</code>",
+            f"🔑 <b>Answer:</b> <code>{_primary_answer(riddle['answer']).title()}</code>",
             parse_mode=constants.ParseMode.HTML,
         )
     except TelegramError:
