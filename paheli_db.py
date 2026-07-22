@@ -262,6 +262,7 @@ def claim_daily(user_id: int) -> Optional[dict]:
 
     if last:
         last = _aware(last)
+              
         if (now - last).total_seconds() < 86400:
             return None  # already claimed
 
@@ -294,11 +295,11 @@ def claim_weekly(user_id: int) -> Optional[dict]:
 
     now = datetime.now(timezone.utc)
     last = doc.get("last_weekly")
-
+          
     if last:
-        last = _aware(last)       
+        last = _aware(last)
         if (now - last).total_seconds() < 604800:
-        return None
+            return None
 
     coins = 500
     xp    = 300
