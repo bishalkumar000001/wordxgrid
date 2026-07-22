@@ -472,11 +472,12 @@ async def _do_start_game(bot, application, job_queue, chat_id, chat_title, user,
         )
         db.update_game_pin(game_id, photo_msg.message_id)
 
-    except TelegramError:
+    except TelegramError as e:
+        logger.exception("pin failed")
+        
         await bot.send_message(
             chat_id,
-            "📌 <b>Game started successfully!</b>\n\n"
-            "I couldn't pin the game because I don't have the <b>Pin Messages</b> permission.",
+            f"📌 <b>Pin failed!</b>\n\n<code>{e}</code>",
             parse_mode=constants.ParseMode.HTML,
         )
 
