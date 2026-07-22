@@ -37,7 +37,18 @@ def _get_db():
 
 
 # ─── XP / Level / Title thresholds ────────────────────────────────────────────
-
+CLAN_LEVELS = [
+    1: 0,
+    2: 500,
+    3: 1500,
+    4: 3000,
+    5: 5000,
+    6: 8000,
+    7: 12000,
+    8: 17000,
+    9: 23000,
+    10: 30000,
+]
 LEVEL_THRESHOLDS = [
     0, 100, 250, 500, 1000, 2000, 3500, 5000, 7500, 10000,
     15000, 20000, 30000, 50000, 75000, 100000
@@ -516,6 +527,14 @@ def create_clan(clan_tag: str, clan_name: str, owner_id: int) -> bool:
             "clan_name":   clan_name,
             "owner_id":    owner_id,
             "members":     [owner_id],
+
+            "level": 1,
+            "xp": 0,
+            "coins": 0,
+            "wins": 0,
+            "losses": 0,
+            "max_members": 10,
+                  
             "total_xp":    0,
             "created_at":  datetime.now(timezone.utc),
         })
@@ -527,25 +546,60 @@ def create_clan(clan_tag: str, clan_name: str, owner_id: int) -> bool:
     except DuplicateKeyError:
         return False
 
+          
+def get_clan_level(xp):
+    level = 1
+
+    for lvl, need in CLAN_LEVELS.items():
+        if xp >= need:
+            level = lvl
+
+    return level
+
+
 def grant_clan_xp(user_id: int, xp: int):
     db = _get_db()
 
     clan = db.paheli_clans.find_one({"members": user_id})
+
     if not clan:
         return
 
+    new_xp = clan.get("xp", 0) + xp
+
+    new_level = get_clan_level(new_xp)
+
+    member_limit = {
+        1:10,
+        2:15,
+        3:20,
+        4:25,
+        5:30,
+        6:35,
+        7:40,
+        8:45,
+        9:50,
+        10:60,
+    }
+
     db.paheli_clans.update_one(
         {"_id": clan["_id"]},
-        {"$inc": {"xp": xp}}
+        {
+            "$set": {
+                "xp": new_xp,
+                "level": new_level,
+                "max_members": member_limit[new_level],
+            }
+        }
     )
-          
+
 def join_clan(user_id: int, clan_tag: str) -> bool:
     clan = _get_db().paheli_clans.find_one({"clan_tag": clan_tag.upper()})
 
     if not clan:
         return False
 
-    if len(clan.get("members", [])) >= 50:
+    if len(clan.get("members", [])) >= clan.get("max_members", 10):
         return False
 
     result = _get_db().paheli_clans.update_one(
