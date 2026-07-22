@@ -6,7 +6,7 @@ import io
 import random
 import threading
 
-from web import app
+from web import app as web_app
 
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
@@ -1206,7 +1206,7 @@ def main():
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 def run_web():
-    app.run(
+    web_app.run(
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 10000))
     )
