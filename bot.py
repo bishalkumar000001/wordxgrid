@@ -440,11 +440,13 @@ async def _do_start_game(bot, application, job_queue, chat_id, chat_title, user,
             parse_mode=constants.ParseMode.HTML,
             reply_markup=_grid_keyboard(),
         )
-    except TelegramError:
+
+    except TelegramError as e:
+        logger.exception("send_photo failed")
+
         await bot.send_message(
             chat_id,
-            "⚠️ <b>I can't start the game!</b>\n\n"
-            "Please give me the <b>Send Photos</b> permission and try again with <code>/new</code>.",
+            f"Photo send failed:\n<code>{e}</code>",
             parse_mode=constants.ParseMode.HTML,
         )
         return
