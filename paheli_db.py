@@ -203,6 +203,8 @@ def grant_xp_coins(user_id: int, xp: int, coins: int, reason: str = "") -> dict:
         {"$inc": {"xp": actual_xp, "coins": coins, "total_score": coins},
          "$set": {"level": new_level, "title": new_title}},
     )
+    grant_clan_xp(user_id, actual_xp)
+          
     return {
         "xp_gained": actual_xp,
         "coins_gained": coins,
@@ -525,7 +527,18 @@ def create_clan(clan_tag: str, clan_name: str, owner_id: int) -> bool:
     except DuplicateKeyError:
         return False
 
+def grant_clan_xp(user_id: int, xp: int):
+    db = _get_db()
 
+    clan = db.paheli_clans.find_one({"members": user_id})
+    if not clan:
+        return
+
+    db.paheli_clans.update_one(
+        {"_id": clan["_id"]},
+        {"$inc": {"xp": xp}}
+    )
+          
 def join_clan(user_id: int, clan_tag: str) -> bool:
     clan = _get_db().paheli_clans.find_one({"clan_tag": clan_tag.upper()})
 
