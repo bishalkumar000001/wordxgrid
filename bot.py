@@ -4,6 +4,9 @@ import os
 import uuid
 import io
 import random
+import threading
+
+from web import app
 
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
@@ -1202,6 +1205,13 @@ def main():
     logger.info("VelocityBots starting… (WordGrid + Paheli)")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
+def run_web():
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 10000))
+    )
+
+threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == "__main__":
     main()
