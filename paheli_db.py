@@ -527,8 +527,16 @@ def create_clan(clan_tag: str, clan_name: str, owner_id: int) -> bool:
 
 
 def join_clan(user_id: int, clan_tag: str) -> bool:
+    clan = _get_db().paheli_clans.find_one({"clan_tag": clan_tag.upper()})
+
+    if not clan:
+        return False
+
+    if len(clan.get("members", [])) >= 50:
+        return False
+
     result = _get_db().paheli_clans.update_one(
-        {"clan_tag": clan_tag.upper(), "members": {"$size": {"$lt": 50}}},
+        {"clan_tag": clan_tag.upper()},
         {"$addToSet": {"members": user_id}},
     )
     if result.modified_count > 0:
