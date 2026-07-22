@@ -1203,7 +1203,14 @@ def main():
     app.add_error_handler(error_handler)
 
     logger.info("VelocityBots starting… (WordGrid + Paheli)")
-    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    app.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+    )
 
 def run_web():
     web_app.run(
