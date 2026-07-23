@@ -587,6 +587,7 @@ def grant_clan_xp(user_id: int, xp: int):
         {
             "$set": {
                 "xp": new_xp,
+                "total_xp": new_xp,
                 "level": new_level,
                 "max_members": member_limit[new_level],
             }
@@ -639,8 +640,8 @@ def get_clan(clan_tag: str) -> Optional[dict]:
 def get_clan_leaderboard(limit: int = 10) -> list:
     return list(_get_db().paheli_clans.find(
         {},
-        {"_id": 0, "clan_tag": 1, "clan_name": 1, "total_xp": 1, "members": 1},
-        sort=[("total_xp", DESCENDING)],
+        {"_id": 0, "clan_tag": 1, "clan_name": 1, "level": 1, "xp": 1, "max_members": 1, "members": 1},
+        sort=[("xp", DESCENDING)],
         limit=limit,
     ))
 
