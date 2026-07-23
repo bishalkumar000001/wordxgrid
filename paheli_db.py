@@ -631,6 +631,23 @@ def leave_clan(user_id: int) -> bool:
     )
     return True
 
+def delete_clan(owner_id: int) -> bool:
+    db = _get_db()
+
+    clan = db.paheli_clans.find_one({"owner_id": owner_id})
+    if not clan:
+        return False
+
+    # Remove clan from every member
+    db.paheli_players.update_many(
+        {"clan_id": clan["clan_tag"]},
+        {"$set": {"clan_id": None}}
+    )
+
+    # Delete clan
+    db.paheli_clans.delete_one({"_id": clan["_id"]})
+
+    return True
 
 def get_clan(clan_tag: str) -> Optional[dict]:
     doc = _get_db().paheli_clans.find_one({"clan_tag": clan_tag.upper()})
