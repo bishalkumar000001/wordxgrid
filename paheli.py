@@ -1522,6 +1522,16 @@ async def cmd_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📅 Created: {clan['created_at'].strftime('%Y-%m-%d') if clan.get('created_at') else 'N/A'}",
             parse_mode=constants.ParseMode.HTML,
         )
+    elif sub == "delete":
+        if not pdb.delete_clan(user.id):
+            await update.message.reply_text(
+                "❌ You are not the owner of any clan."
+            )
+            return
+
+        await update.message.reply_text(
+            "🗑️ Clan deleted successfully!"
+        )
     else:
         await update.message.reply_text(
             "Usage:\n"
