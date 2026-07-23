@@ -1402,14 +1402,32 @@ async def cmd_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             clan = pdb.get_clan(clan_id)
             if clan:
                 members_count = len(clan.get("members", []))
+                level = clan.get("level", 1)
+                xp = clan.get("xp", 0)
+                max_members = clan.get("max_members", 10)
+
+                next_level = pdb.CLAN_LEVELS.get(level + 1)
+
+                if next_level:
+                    prev = pdb.CLAN_LEVELS[level]
+                    progress = xp - prev
+                    needed = next_level - prev
+                    filled = int((progress / needed) * 10)
+                    bar = "█" * filled + "░" * (10 - filled)
+                    xp_bar = f"{bar} {xp}/{next_level}"
+                else:
+                    xp_bar = "MAX LEVEL"
+
                 await update.message.reply_text(
                     f"🏰 <b>Your Clan: {clan['clan_name']}</b> [{clan['clan_tag']}]\n\n"
-                    f"👥 Members: <b>{members_count}/50</b>\n"
-                    f"⭐ Total XP: <b>{clan.get('total_xp', 0)}</b>\n\n"
+                    f"⭐ <b>Level:</b> {level}\n"
+                    f"👥 <b>Members:</b> {members_count}/{max_members}\n"
+                    f"📊 <b>Clan XP:</b>\n{xp_bar}\n"
+                    f"🏆 <b>Total XP:</b> {xp}\n\n"
                     "Commands:\n"
-                    "/clan leave — Leave clan\n"
-                    "/clan info TAG — View clan info\n"
-                    "/clan top — Top clans",
+                    "/clan leave\n"
+                    "/clan info TAG\n"
+                    "/clan top",
                     parse_mode=constants.ParseMode.HTML,
                 )
                 return
@@ -1458,7 +1476,7 @@ async def cmd_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if success:
             await update.message.reply_text(f"✅ You joined clan [{tag}]!")
         else:
-            await update.message.reply_text(f"❌ Clan [{tag}] not found or is full (50 members max).")
+            await update.message.reply_text(f"❌ Clan [{tag}] not found or the clan is full.")
 
     elif sub == "leave":
         success = pdb.leave_clan(user.id)
@@ -1477,7 +1495,9 @@ async def cmd_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"#{i}")
             lines.append(
                 f"{medal} <b>{c['clan_name']}</b> [{c['clan_tag']}] "
-                f"— {len(c.get('members',[]))} members · {c.get('total_xp',0)} XP"
+                f"— Lv.{c.get('level',1)} • "
+                f"{len(c.get('members',[]))}/{c.get('max_members',10)} members • "
+                f"{c.get('xp',0)} XP"
             )
         await update.message.reply_text(
             "\n".join(lines), parse_mode=constants.ParseMode.HTML
@@ -1489,10 +1509,16 @@ async def cmd_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not clan:
             await update.message.reply_text(f"❌ Clan [{tag}] not found.")
             return
+        level = clan.get("level", 1)
+        xp = clan.get("xp", 0)
+        members = len(clan.get("members", []))
+        max_members = clan.get("max_members", 10)
+
         await update.message.reply_text(
-            f"🏰 <b>{clan['clan_name']}</b> [{clan['clan_tag']}]\n"
-            f"👥 Members: {len(clan.get('members',[]))}/50\n"
-            f"⭐ Total XP: {clan.get('total_xp',0)}\n"
+            f"🏰 <b>{clan['clan_name']}</b> [{clan['clan_tag']}]\n\n"
+            f"⭐ Level: {level}\n"
+            f"👥 Members: {members}/{max_members}\n"
+            f"🏆 XP: {xp}\n"
             f"📅 Created: {clan['created_at'].strftime('%Y-%m-%d') if clan.get('created_at') else 'N/A'}",
             parse_mode=constants.ParseMode.HTML,
         )
