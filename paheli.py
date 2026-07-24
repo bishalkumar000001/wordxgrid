@@ -1562,7 +1562,7 @@ async def cmd_addriddle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Question: ...\n"
             "Answer: ...\n"
             "Hints: hint1, hint2, hint3\n"
-            "Category: general/movies/sports/science/math/tech/history\n"
+            "Category: general/movies/sports/science/math/tech/history/philosophy\n"
             "Difficulty: easy/medium/hard/legendary\n"
             "Language: en/hi"
         )
