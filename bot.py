@@ -62,10 +62,10 @@ def format_lb_row(rank: int, row: dict) -> str:
         name = name[:12] + "..."
 
     return (
-        f"{medal} #{rank:<2} "
-        f"<b>{name:<15}</b> "
-        f"{pts:>5} pts   "
-        f"{words:>3} words"
+    f"{medal} "
+    f"<b>{name:<15}</b> "
+    f"{pts:>5} pts   "
+    f"{words:>3} words"
     )
 
 
