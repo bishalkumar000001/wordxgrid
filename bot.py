@@ -61,17 +61,18 @@ def format_lb_row(rank: int, row: dict) -> str:
     pts = row.get("total_points", 0)
     words = row.get("words_found", 0)
 
-    medals = {
-        1: "🥇",
-        2: "🥈",
-        3: "🥉",
-    }
-
-    medal = medals.get(rank, f"#{rank}")
+    if rank == 1:
+        prefix = "🥇 #1"
+    elif rank == 2:
+        prefix = "🥈 #2"
+    elif rank == 3:
+        prefix = "🥉 #3"
+    else:
+        prefix = f"🏅 #{rank}"
 
     return (
-        f"{medal} <a href='tg://user?id={row['user_id']}'><blockquote><b>{html.escape(name)}</b></blockquote></a>\n"
-        f"   ⭐ <b>{pts}</b> pts • 🧩 <b>{words}</b> words"
+        f"<blockquote><a href='tg://user?id={row['user_id']}'><b>{prefix} {html.escape(name)}</b></a></blockquote>\n"
+        f"⭐ <b>{pts}</b> pts • 🧩 <b>{words}</b> words"
     )
 
 
