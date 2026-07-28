@@ -51,21 +51,26 @@ def is_sudo(user_id: int) -> bool:
 
 def format_lb_row(rank: int, row: dict) -> str:
     name = row.get("first_name") or ""
+
     if row.get("last_name"):
         name += " " + row["last_name"]
+
     name = name.strip() or f"User{row['user_id']}"
-    pts   = row.get("total_points", 0)
+
+    pts = row.get("total_points", 0)
     words = row.get("words_found", 0)
-    medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"#{rank}")
-    words_str = f" · {words} words" if words else ""
-    if len(name) > 15:
-        name = name[:12] + "..."
+
+    medals = {
+        1: "🥇",
+        2: "🥈",
+        3: "🥉",
+    }
+
+    medal = medals.get(rank, f"#{rank}")
 
     return (
-    f"{medal} "
-    f"<b>{name:<15}</b> "
-    f"{pts:>5} pts   "
-    f"{words:>3} words"
+        f"{medal} <b>{name}</b>\n"
+        f"   ⭐ <b>{pts}</b> pts • 🧩 <b>{words}</b> words"
     )
 
 
