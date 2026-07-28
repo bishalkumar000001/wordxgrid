@@ -880,9 +880,6 @@ async def _send_leaderboard(
             "🏆 <b>WORDGRID LEADERBOARD</b>",
             f"🌍 {scope_label} • {period_label}",
             "",
-            "━━━━━━━━━━━━━━━━━━━━",
-            "🏅 <b>TOP 10 PLAYERS</b>",
-            "━━━━━━━━━━━━━━━━━━━━",
         ]
 
         # Top 10 players
