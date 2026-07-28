@@ -5,6 +5,7 @@ import uuid
 import io
 import random
 import threading
+import html
 
 from web import app as web_app
 
@@ -69,7 +70,7 @@ def format_lb_row(rank: int, row: dict) -> str:
     medal = medals.get(rank, f"#{rank}")
 
     return (
-        f"{medal} <b>{name}</b>\n"
+        f"{medal} <a href='tg://user?id={row['user_id']}'><blockquote><b>{html.escape(name)}</b></blockquote></a>\n"
         f"   ⭐ <b>{pts}</b> pts • 🧩 <b>{words}</b> words"
     )
 
