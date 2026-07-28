@@ -858,7 +858,7 @@ async def cb_hint_reveal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /leaderboard / /lb ───────────────────────────────────────────────────────
 
 async def _send_leaderboard(
-    target, context, period, scope, chat_id, chat_title, chat_type, edit=False
+    target, context, period, scope, chat_id, chat_title, chat_type, edit=False, user_id=None,
 ):
     group_id_filter = chat_id if scope == "chat" else None
     rows            = db.get_period_leaderboard(period, group_id=group_id_filter, limit=10)
@@ -889,7 +889,7 @@ async def _send_leaderboard(
             limit=100000,
         )
 
-        user = update.effective_user
+        user = target.effective_user
 
         for rank, r in enumerate(all_rows, start=1):
             if r["user_id"] == user.id:
@@ -933,6 +933,7 @@ async def cmd_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.message, context, period, scope,
         chat_id=chat.id, chat_title=chat.title or "This Chat",
         chat_type=chat.type, edit=False,
+        user_id=update.effective_user.id,
     )
 
 
@@ -950,6 +951,7 @@ async def cb_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         query, context, period, scope,
         chat_id=chat.id, chat_title=chat.title or "This Chat",
         chat_type=chat.type, edit=True,
+        user_id=query.from_user.id,
     )
 
 
