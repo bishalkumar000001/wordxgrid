@@ -889,10 +889,8 @@ async def _send_leaderboard(
             limit=100000,
         )
 
-        user = target.effective_user
-
         for rank, r in enumerate(all_rows, start=1):
-            if r["user_id"] == user.id:
+            if r["user_id"] == user_id:
                 if rank > 10:
                     lines.extend([
                         "",
