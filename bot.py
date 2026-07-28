@@ -58,7 +58,15 @@ def format_lb_row(rank: int, row: dict) -> str:
     words = row.get("words_found", 0)
     medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"#{rank}")
     words_str = f" · {words} words" if words else ""
-    return f"{medal} <b>{name}</b> — {pts} pts{words_str}"
+    if len(name) > 15:
+        name = name[:12] + "..."
+
+    return (
+        f"{medal} #{rank:<2} "
+        f"<b>{name:<15}</b> "
+        f"{pts:>5} pts   "
+        f"{words:>3} words"
+    )
 
 
 def grid_message_link(chat_id: int, message_id: int) -> str:
@@ -853,16 +861,48 @@ async def _send_leaderboard(
     target, context, period, scope, chat_id, chat_title, chat_type, edit=False
 ):
     group_id_filter = chat_id if scope == "chat" else None
-    rows            = db.get_period_leaderboard(period, group_id=group_id_filter, limit=20)
+    rows            = db.get_period_leaderboard(period, group_id=group_id_filter, limit=10)
     period_label    = PERIOD_LABELS.get(period, period)
     scope_label     = f"📍 {chat_title}" if scope == "chat" else "🌍 Global"
 
     if not rows:
         text = f"📊 No scores yet for <b>{scope_label} — {period_label}</b>."
     else:
-        lines = [f"🏆 <b>{scope_label}</b>\n— {period_label}\n"]
-        for i, row in enumerate(rows, 1):
+        # Top 10 header
+        lines = [
+            "🏆 <b>WORDGRID LEADERBOARD</b>",
+            f"🌍 {scope_label} • {period_label}",
+            "",
+            "━━━━━━━━━━━━━━━━━━━━",
+            "🏅 <b>TOP 10 PLAYERS</b>",
+            "━━━━━━━━━━━━━━━━━━━━",
+        ]
+
+        # Top 10 players
+        for i, row in enumerate(rows, start=1):
             lines.append(format_lb_row(i, row))
+
+        # Get player's own rank
+        all_rows = db.get_period_leaderboard(
+            period,
+            group_id=group_id_filter,
+            limit=100000,
+        )
+
+        user = update.effective_user
+
+        for rank, r in enumerate(all_rows, start=1):
+            if r["user_id"] == user.id:
+                if rank > 10:
+                    lines.extend([
+                        "",
+                        "━━━━━━━━━━━━━━━━━━━━",
+                        "📍 <b>YOUR RANK</b>",
+                        "━━━━━━━━━━━━━━━━━━━━",
+                        format_lb_row(rank, r),
+                    ])
+                break
+
         text = "\n".join(lines)
 
     kb = _lb_keyboard(period, scope, chat_type)
