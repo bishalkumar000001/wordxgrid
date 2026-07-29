@@ -29,7 +29,6 @@ from wordgrid import (
 
 # ── Import Paheli module ───────────────────────────────────────────────────────
 from paheli import register_paheli_handlers
-from ludo import register_ludo_handlers
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -1247,7 +1246,6 @@ def main():
 
     # ── Paheli handlers (group=1 for message handler, won't conflict) ─────────
     register_paheli_handlers(app)
-    register_ludo_handlers(app)
 
     app.add_error_handler(error_handler)
 
