@@ -1,17 +1,4 @@
-"""Telegram group lobby for Ludo.
-
-Flow:
-  1. /ludo in a group → bot posts a lobby card with player list + Join button
-  2. Others tap "Join Game" → added to the room, card updates
-  3. Once 2+ players joined, "Open Game" button appears for everyone
-  4. Tapping "Open Game" opens the web app at the correct room
-
-Requires two Render environment variables:
-  LUDO_WEB_APP_URL  – base URL of the deployed Ludo React app
-                      e.g. https://abc123.replit.dev
-  LUDO_API_URL      – base URL of the Ludo API (same Replit project, /api path)
-                      e.g. https://abc123.replit.dev/api
-"""
+"""Telegram group lobby for Ludo."""
 
 from __future__ import annotations
 
@@ -27,8 +14,6 @@ LUDO_API_URL = os.environ.get("LUDO_API_URL", "").strip().rstrip("/")
 
 COLORS = ["🔴 Red", "🔵 Blue", "🟢 Green", "🟡 Yellow"]
 
-
-# ── API helpers ──────────────────────────────────────────────────────────────
 
 async def _api_post(path: str, body: dict[str, Any]) -> dict[str, Any] | None:
     if not LUDO_API_URL:
@@ -53,8 +38,6 @@ async def _api_get(path: str) -> dict[str, Any] | None:
     except Exception:
         return None
 
-
-# ── Message helpers ──────────────────────────────────────────────────────────
 
 def _player_display(room: dict[str, Any]) -> str:
     lines = ["🎲 *Ludo — Game Lobby*\n"]
@@ -85,38 +68,33 @@ def _lobby_keyboard(room_id: str, player_count: int, is_private: bool) -> Inline
 
 
 def _player_name(user) -> str:
-    return " ".join(filter(None, [user.first_name, user.last_name])) or user.username or "Player"
+    name = " ".join(filter(None, [user.first_name, user.last_name])) or user.username or "Player"
+    return name[:24]
 
-
-# ── Handlers ─────────────────────────────────────────────────────────────────
 
 async def cmd_ludo(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     user = update.effective_user
     if not message or not user:
         return
-
     if not LUDO_WEB_APP_URL or not LUDO_API_URL:
         await message.reply_text(
             "⚠️ Ludo is not fully configured yet.\n"
             "Set LUDO_WEB_APP_URL and LUDO_API_URL in Render."
         )
         return
-
     name = _player_name(user)
+    room_name = f"{name}'s game"[:24]
     room = await _api_post("/ludo/rooms", {
-        "name": f"{name}'s game",
+        "name": room_name,
         "playerName": name,
         "playerId": str(user.id),
     })
-
     if not room:
         await message.reply_text("⚠️ Could not create a Ludo room. Please try again.")
         return
-
     room_id = room["id"]
     is_private = update.effective_chat.type == Chat.PRIVATE
-
     await message.reply_text(
         _player_display(room),
         parse_mode="Markdown",
@@ -130,36 +108,29 @@ async def cb_ludo_join(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> N
     if not user:
         await query.answer()
         return
-
     room_id = query.data.split(":", 2)[2]
     name = _player_name(user)
-
     room = await _api_post(f"/ludo/rooms/{room_id}/join", {
         "playerName": name,
         "playerId": str(user.id),
     })
-
     if not room:
         existing = await _api_get(f"/ludo/rooms/{room_id}")
         if not existing:
             await query.answer("This game no longer exists.", show_alert=True)
         else:
-            await query.answer("Could not join — the room may be full or already started.", show_alert=True)
+            await query.answer("Could not join — room may be full or already started.", show_alert=True)
         return
-
     await query.answer(f"✅ You joined as {name}!")
     is_private = update.effective_chat.type == Chat.PRIVATE
-    player_count = len(room.get("players", []))
-
     await query.edit_message_text(
         _player_display(room),
         parse_mode="Markdown",
-        reply_markup=_lobby_keyboard(room_id, player_count, is_private),
+        reply_markup=_lobby_keyboard(room_id, len(room.get("players", [])), is_private),
     )
 
 
 async def cb_ludo_from_game(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles the Ludo button inside the /game selector."""
     query = update.callback_query
     await query.answer()
     await cmd_ludo(update, _context)
