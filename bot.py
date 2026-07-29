@@ -1246,6 +1246,7 @@ def main():
 
     # ── Paheli handlers (group=1 for message handler, won't conflict) ─────────
     register_paheli_handlers(app)
+    register_ludo_handlers(app)
 
     app.add_error_handler(error_handler)
 
