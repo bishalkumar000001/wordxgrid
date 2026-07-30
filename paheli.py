@@ -430,29 +430,22 @@ async def cb_paheli_option(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Two wrong attempts finished
-        pdb.timeout_paheli(session_id)
-
-        _cancel_timeout(context, session_id)
-
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except TelegramError:
-            pass
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🎯 Agli Paheli", callback_data="paheli_next"),
+                InlineKeyboardButton("📊 Leaderboard", callback_data="paheli_leaderboard"),
+            ]
+        ])
 
         await query.message.reply_text(
-            "❌ 2 wrong attempts completed!\n\n"
-            f"✅ Correct Answer: <b>{correct}</b>\n\n"
-            "🎮 Next Paheli...",
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "🧩 <b>DESI PAHELI — CHALLENGE!</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "❌ <b>2 Wrong Attempts Completed!</b>\n\n"
+            f"✅ <b>Correct Answer:</b> <code>{correct}</code>\n\n"
+            "👇 Choose an option below.",
             parse_mode=constants.ParseMode.HTML,
-        )
-
-        await _start_paheli_session(
-            update,
-            context,
-            chat_id=query.message.chat.id,
-            user=query.from_user,
-            from_callback=False,
+            reply_markup=keyboard,
         )
 
         return
