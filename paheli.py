@@ -430,10 +430,24 @@ async def cb_paheli_option(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        pdb.timeout_paheli(session_id)
+        _cancel_timeout(context, session_id)
+
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except TelegramError:
+            pass
+
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("🎯 Agli Paheli", callback_data="paheli_next"),
-                InlineKeyboardButton("📊 Leaderboard", callback_data="paheli_leaderboard"),
+                InlineKeyboardButton(
+                    "🎯 Agli Paheli",
+                    callback_data=f"ph:next:{query.message.chat.id}",
+                ),
+                InlineKeyboardButton(
+                    "📊 Leaderboard",
+                    callback_data=f"ph:lb:{query.message.chat.id}",
+                ),
             ]
         ])
 
