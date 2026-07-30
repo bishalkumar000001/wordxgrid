@@ -467,6 +467,13 @@ def get_used_riddle_ids(group_id: int, limit: int = 500) -> set:
     )
     return {d["riddle_id"] for d in docs}
 
+def get_group_session_count(group_id: int) -> int:
+    """Return total number of paheli sessions started in this group.
+    Used to determine the next difficulty in the rotation cycle."""
+    return _get_db().paheli_sessions.count_documents(
+        {"group_id": group_id}
+    )
+
 
 # ─── PvP Challenges ───────────────────────────────────────────────────────────
 
