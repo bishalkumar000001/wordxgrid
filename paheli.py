@@ -1,9 +1,11 @@
 """
-paheli.py — Complete Paheli (Riddle) game module for VelocityBots.
+paheli.py — Complete Paheli (Riddle) game module — MCQ Edition.
+Riddles are now shown with 8 multiple-choice buttons (1 correct, 7 wrong).
+Difficulty rotates automatically: General → Medium → Hard → Legendary → repeat.
 Plug-and-play: call register_paheli_handlers(app) in your main bot.py.
 
 Commands:
-  /paheli   /answer   /hint   /skip   /daily   /weekly
+  /paheli   /hint   /skip   /daily   /weekly
   /leaderboard (paheli)   /profile   /inventory   /shop
   /stats   /settings   /challenge   /clan
   Admin: /addriddle  /deleteriddle  /pban  /punban  /ridstats
@@ -41,27 +43,37 @@ SUDO_USERS    = set(int(x.strip()) for x in _sudo_raw.split(",") if x.strip().is
 if OWNER_ID:
     SUDO_USERS.add(OWNER_ID)
 
-RIDDLE_TIMEOUT_SECONDS = 120   # 2 minutes per riddle in group
-HINT_COOLDOWN_SECONDS  = 15    # cooldown between /hint uses
-PAHELI_COOLDOWN_SECONDS = 10   # cooldown between /paheli uses
-MAX_HINTS_PER_SESSION  = 3
+RIDDLE_TIMEOUT_SECONDS  = 150   # 2.5 minutes per riddle in group
+PAHELI_COOLDOWN_SECONDS = 10    # cooldown between /paheli uses
+HINT_COOLDOWN_SECONDS   = 15    # cooldown between /hint uses
+MAX_HINTS_PER_SESSION   = 2     # max hints per riddle
+
+# Difficulty rotation order
+DIFFICULTY_ROTATION = ["easy", "medium", "hard", "legendary"]
 
 POINTS_BY_DIFFICULTY = {
-    "easy":      {"base": 10,  "no_hint": 12,  "xp": 10,  "coins": 5},
-    "medium":    {"base": 25,  "no_hint": 30,  "xp": 25,  "coins": 15},
-    "hard":      {"base": 50,  "no_hint": 60,  "xp": 50,  "coins": 30},
-    "legendary": {"base": 100, "no_hint": 125, "xp": 100, "coins": 60},
+    "easy":      {"base": 10,  "no_hint": 13,  "xp": 10,  "coins": 5},
+    "medium":    {"base": 25,  "no_hint": 32,  "xp": 25,  "coins": 15},
+    "hard":      {"base": 50,  "no_hint": 65,  "xp": 50,  "coins": 30},
+    "legendary": {"base": 100, "no_hint": 130, "xp": 100, "coins": 60},
 }
 
 DIFFICULTY_EMOJI = {
-    "easy": "🟢", "medium": "🟡", "hard": "🔴", "legendary": "💀"
+    "easy":      "🟢",
+    "medium":    "🟡",
+    "hard":      "🔴",
+    "legendary": "💀",
 }
 
-CATEGORY_EMOJI = {
-    "general":  "🌐", "movies":  "🎬", "sports":  "⚽",
-    "science":  "🔬", "math":    "🔢", "tech":    "💻",
-    "history":  "📜",
+DIFFICULTY_LABEL = {
+    "easy":      "Saral (आसान)",
+    "medium":    "Madhyam (मध्यम)",
+    "hard":      "Kathin (कठिन)",
+    "legendary": "Ati Kathin (अति कठिन)",
 }
+
+# Option labels A-H
+OPTION_LABELS = ["🅰", "🅱", "🅲", "🅳", "🅴", "🅵", "🅶", "🅷"]
 
 
 # ─── Riddles loader ───────────────────────────────────────────────────────────
@@ -85,69 +97,31 @@ def _load_riddles():
         _ALL_RIDDLES = []
 
 
-def _pick_riddle(group_id: int, difficulty: str = "all",
-                 language: str = "all") -> dict | None:
+def _get_next_difficulty(group_id: int) -> str:
+    """Return the next difficulty in rotation based on how many riddles this group has done."""
+    count = pdb.get_group_session_count(group_id)
+    return DIFFICULTY_ROTATION[count % 4]
+
+
+def _pick_riddle(group_id: int, difficulty: str = "auto") -> dict | None:
     if not _ALL_RIDDLES:
         _load_riddles()
 
-    used_ids = pdb.get_used_riddle_ids(group_id, limit=300)
+    if difficulty == "auto":
+        difficulty = _get_next_difficulty(group_id)
+
+    used_ids = pdb.get_used_riddle_ids(group_id, limit=200)
     pool = [
         r for r in _ALL_RIDDLES
         if r["id"] not in used_ids
-        and (difficulty == "all" or r.get("difficulty") == difficulty)
-        and (language == "all" or r.get("language") == language)
+        and r.get("difficulty") == difficulty
     ]
 
     if not pool:
-        # Reset if all riddles used
-        pool = [
-            r for r in _ALL_RIDDLES
-            if (difficulty == "all" or r.get("difficulty") == difficulty)
-            and (language == "all" or r.get("language") == language)
-        ]
+        # Reset if all riddles of this difficulty are used
+        pool = [r for r in _ALL_RIDDLES if r.get("difficulty") == difficulty]
 
     return random.choice(pool) if pool else None
-
-
-# ─── Answer normalisation ─────────────────────────────────────────────────────
-
-def _normalise(text: str) -> str:
-    """Lowercase, strip punctuation/extra spaces, normalise Unicode."""
-    text = unicodedata.normalize("NFC", text.strip().lower())
-    text = re.sub(r"[^\w\s\u0900-\u097F]", "", text)  # keep devanagari
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-
-def _check_single(u: str, c: str) -> bool:
-    """Check user input against one accepted answer string."""
-    c = _normalise(c)
-    if u == c:
-        return True
-    if u.replace(" ", "") == c.replace(" ", ""):
-        return True
-    c_words = c.split()
-    if len(c_words) >= 3:
-        u_words = set(u.split())
-        matched = sum(1 for w in c_words if w in u_words)
-        if matched / len(c_words) >= 0.8:
-            return True
-    return False
-
-
-def _answers_match(user_input: str, correct) -> bool:
-    """Accept correct as a string OR a list of accepted answers (Hinglish + English)."""
-    u = _normalise(user_input)
-    if isinstance(correct, list):
-        return any(_check_single(u, c) for c in correct)
-    return _check_single(u, correct)
-
-
-def _primary_answer(correct) -> str:
-    """Return the first (primary/display) answer from a string or list."""
-    if isinstance(correct, list):
-        return correct[0]
-    return correct
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -163,68 +137,84 @@ def _is_sudo(user_id: int) -> bool:
     return user_id in SUDO_USERS
 
 
-def _make_riddle_text(riddle: dict, hint_count: int = 0,
-                      show_category: bool = True) -> str:
+def _make_riddle_text(riddle: dict, hint_count: int = 0) -> str:
     d_emoji = DIFFICULTY_EMOJI.get(riddle.get("difficulty", "easy"), "🟡")
-    c_emoji = CATEGORY_EMOJI.get(riddle.get("category", "general"), "🌐")
+    d_label = DIFFICULTY_LABEL.get(riddle.get("difficulty", "easy"), "Saral")
     pts     = riddle.get("points", 10)
-    lang    = "🇮🇳 Hindi" if riddle.get("language") == "hi" else "🇬🇧 English"
 
     lines = [
         "━━━━━━━━━━━━━━━━━━",
-        "🧩 <b>PAHELI — RIDDLE CHALLENGE</b>",
+        "🧩 <b>DESI PAHELI — CHALLENGE!</b>",
         "━━━━━━━━━━━━━━━━━━\n",
         f"<b>{riddle['question']}</b>\n",
+        f"{d_emoji} <b>Level:</b> {d_label}",
+        f"🏆 <b>Points:</b> {pts}  ⏱ <b>2.5 min</b>",
+        "",
+        "👇 <b>Sahi jawab button dabao!</b>",
     ]
 
-    if show_category:
-        lines.append(
-            f"{c_emoji} <b>Category:</b> {riddle.get('category','?').title()}  "
-            f"{d_emoji} <b>{riddle.get('difficulty','?').upper()}</b>  "
-            f"{lang}"
-        )
-
-    lines.append(f"🏆 <b>Points:</b> {pts}   ⏱ <b>Timeout:</b> 2 min")
-
     if hint_count > 0:
-        hints = riddle.get("hints", [])
-        shown = hints[:hint_count]
-        hint_lines = "\n".join(f"  • {h}" for h in shown)
-        lines.append(f"\n💡 <b>Hints used ({hint_count}):</b>\n{hint_lines}")
+        hints  = riddle.get("hints", [])
+        shown  = hints[:hint_count]
+        hlines = "\n".join(f"  • {h}" for h in shown)
+        lines.append(f"\n💡 <b>Hints ({hint_count}):</b>\n{hlines}")
 
-    lines.append("\n✏️ <i>Type your answer in the chat!</i>")
     lines.append("━━━━━━━━━━━━━━━━━━")
     return "\n".join(lines)
 
 
-def _riddle_keyboard(session_id: str, hints_used: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(f"💡 Hint ({hints_used}/{MAX_HINTS_PER_SESSION})",
-                                 callback_data=f"ph:hint:{session_id}"),
-            InlineKeyboardButton("⏭ Skip",
-                                 callback_data=f"ph:skip:{session_id}"),
-        ],
-        [
-            InlineKeyboardButton("📊 Leaderboard",
-                                 callback_data="ph:lb:all:global"),
-        ],
-    ])
+def _options_keyboard(session_id: str, riddle: dict, hints_used: int, disabled: bool = False) -> InlineKeyboardMarkup:
+    """Build keyboard with 8 MCQ option buttons (2 columns × 4 rows) + hint/skip row."""
+    options = riddle.get("options", [])
+    rows    = []
+
+    # 2 options per row → 4 rows for 8 options
+    for i in range(0, min(len(options), 8), 2):
+        row = []
+        label_a = OPTION_LABELS[i]
+        label_b = OPTION_LABELS[i + 1] if i + 1 < len(options) else None
+
+        opt_a = options[i]
+        row.append(InlineKeyboardButton(
+            f"{label_a} {opt_a}",
+            callback_data=f"ph:opt:{session_id}:{i}" if not disabled else "ph:noop"
+        ))
+
+        if label_b and i + 1 < len(options):
+            opt_b = options[i + 1]
+            row.append(InlineKeyboardButton(
+                f"{label_b} {opt_b}",
+                callback_data=f"ph:opt:{session_id}:{i+1}" if not disabled else "ph:noop"
+            ))
+        rows.append(row)
+
+    if not disabled:
+        rows.append([
+            InlineKeyboardButton(
+                f"💡 Hint ({hints_used}/{MAX_HINTS_PER_SESSION})",
+                callback_data=f"ph:hint:{session_id}"
+            ),
+            InlineKeyboardButton("⏭ Skip", callback_data=f"ph:skip:{session_id}"),
+        ])
+        rows.append([
+            InlineKeyboardButton("📊 Leaderboard", callback_data="ph:lb:all:global"),
+        ])
+
+    return InlineKeyboardMarkup(rows)
 
 
-# ─── /game — Game selector (called from bot.py) ────────────────────────────────
+# ─── /game — Game selector ─────────────────────────────────────────────────────
 
 async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows the game picker with WordGrid and Paheli buttons."""
     chat = update.effective_chat
-    chat_id = chat.id
 
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("🔤 Word Grid",
-                                 callback_data=f"game:wordgrid:{chat_id}"),
-            InlineKeyboardButton("🧩 Paheli (Riddles)",
-                                 callback_data=f"game:paheli:{chat_id}"),
+                                 callback_data=f"game:wordgrid:{chat.id}"),
+            InlineKeyboardButton("🧩 Paheli (Paheliyan)",
+                                 callback_data=f"game:paheli:{chat.id}"),
         ]
     ])
 
@@ -232,9 +222,9 @@ async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━━━━\n"
         "🎮 <b>VelocityBots Game Center</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        "Choose your game and let the fun begin!\n\n"
-        "🔤 <b>Word Grid</b> — Find hidden words in a letter grid\n"
-        "🧩 <b>Paheli</b> — Solve riddles in Hindi & English\n",
+        "Apna game chunlo aur maza karo!\n\n"
+        "🔤 <b>Word Grid</b> — Letter grid mein chhupe shabd dhoondhon\n"
+        "🧩 <b>Paheli</b> — Desi Hinglish paheliyan bujho!\n",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=keyboard,
     )
@@ -255,18 +245,14 @@ async def cb_game_selector(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat      = query.message.chat
 
     if game_type == "wordgrid":
-        # Check if group; if so, start wordgrid game
         if chat.type == "private":
-            await query.answer("⚠️ Word Grid can only be played in groups!", show_alert=True)
+            await query.answer("⚠️ Word Grid sirf groups mein khelo!", show_alert=True)
             return
-        # Import start_game from bot module to avoid circular imports
         await query.message.reply_text(
-            "🔤 Starting Word Grid! Use /new to start an easy game or /new_hard for hard mode."
+            "🔤 Word Grid shuru karo! /new (easy) ya /new_hard (hard) use karo."
         )
 
     elif game_type == "paheli":
-        # Start paheli directly
-        context._user_id = user.id
         await _start_paheli_session(update, context, chat_id=chat_id,
                                     user=user, from_callback=True,
                                     reply_to=query.message)
@@ -279,14 +265,13 @@ async def cmd_paheli(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
 
     if pdb.is_banned(user.id):
-        await update.message.reply_text("🚫 You are banned from Paheli. Contact admin.")
+        await update.message.reply_text("🚫 Aap Paheli se ban hain. Admin se contact karo.")
         return
 
-    # Cooldown check
     cd = pdb.check_cooldown(user.id, "paheli", PAHELI_COOLDOWN_SECONDS)
     if cd > 0:
         await update.message.reply_text(
-            f"⏳ Please wait <b>{cd}s</b> before starting another riddle.",
+            f"⏳ <b>{cd}s</b> baad try karo.",
             parse_mode=constants.ParseMode.HTML,
         )
         return
@@ -298,14 +283,12 @@ async def cmd_paheli(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _start_paheli_session(update: Update, context: ContextTypes.DEFAULT_TYPE,
                                  chat_id: int, user, from_callback: bool = False,
                                  reply_to=None):
-    """Core: pick a riddle, create session, send message."""
-
-    # Ensure group only
-    msg = reply_to or (update.message if hasattr(update, "message") else None)
+    """Core: pick a riddle, create session, send MCQ message."""
+    msg       = reply_to or (update.message if hasattr(update, "message") else None)
     chat_type = (msg.chat.type if msg else "group") if hasattr(msg, "chat") else "group"
 
     if chat_type == "private":
-        text = "⚠️ Paheli is best played in groups! Use /paheli in a group chat."
+        text = "⚠️ Paheli groups mein khelo! Kisi group mein /paheli type karo."
         if msg:
             await msg.reply_text(text)
         return
@@ -316,32 +299,27 @@ async def _start_paheli_session(update: Update, context: ContextTypes.DEFAULT_TY
         session_id = existing["session_id"]
         riddle     = existing["riddle"]
         hints_used = existing.get("hints_used", 0)
-        text = (
-            "⚠️ A riddle is already active!\n\n"
-            + _make_riddle_text(riddle, hints_used)
-        )
+        text = "⚠️ Ek paheli pehle se chal rahi hai!\n\n" + _make_riddle_text(riddle, hints_used)
         if msg:
             await msg.reply_text(
                 text,
                 parse_mode=constants.ParseMode.HTML,
-                reply_markup=_riddle_keyboard(session_id, hints_used),
+                reply_markup=_options_keyboard(session_id, riddle, hints_used),
             )
         return
 
-    # Get player settings for language/difficulty preference
-    player = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
-    settings = player.get("settings", {})
-    lang_pref = settings.get("language", "both")
-    diff_pref = settings.get("difficulty", "all")
+    pdb.ensure_player(user.id, user.first_name or "", user.username or "")
 
-    language   = "all" if lang_pref == "both" else lang_pref
-    difficulty = diff_pref
-
-    riddle = _pick_riddle(chat_id, difficulty=difficulty, language=language)
+    riddle = _pick_riddle(chat_id)
     if not riddle:
         if msg:
-            await msg.reply_text("❌ No riddles available. Try again later!")
+            await msg.reply_text("❌ Abhi koi paheli nahi hai. Baad mein try karo!")
         return
+
+    # Shuffle options before showing
+    options = riddle.get("options", [])
+    random.shuffle(options)
+    riddle = {**riddle, "options": options}
 
     session_id = str(uuid.uuid4())
     pdb.create_paheli_session(session_id, riddle, chat_id, user.id)
@@ -354,7 +332,7 @@ async def _start_paheli_session(update: Update, context: ContextTypes.DEFAULT_TY
         sent = await msg.reply_text(
             text,
             parse_mode=constants.ParseMode.HTML,
-            reply_markup=_riddle_keyboard(session_id, 0),
+            reply_markup=_options_keyboard(session_id, riddle, 0),
         )
 
     # Schedule timeout
@@ -381,16 +359,27 @@ async def _paheli_timeout(context: ContextTypes.DEFAULT_TYPE):
     riddle = session["riddle"]
     pdb.timeout_paheli(session_id)
 
+    # Find correct answer
+    correct_ans = riddle.get("answer", "?")
+    options     = riddle.get("options", [])
+    answer_line = ""
+    for i, opt in enumerate(options):
+        if opt == correct_ans:
+            answer_line = f"{OPTION_LABELS[i]} <b>{correct_ans}</b>"
+            break
+    if not answer_line:
+        answer_line = f"<b>{correct_ans}</b>"
+
     try:
         await context.bot.send_message(
             group_id,
             f"⏰ <b>Time's Up!</b>\n\n"
-            f"❌ Nobody solved the riddle in time.\n\n"
-            f"🔑 <b>Answer:</b> <code>{_primary_answer(riddle['answer']).title()}</code>\n\n"
-            f"Use /paheli to try the next one! 🎯",
+            f"❌ Kisi ne sahi jawab nahi diya.\n\n"
+            f"🔑 <b>Sahi Jawab:</b> {answer_line}\n\n"
+            f"Agli paheli ke liye /paheli likhein! 🎯",
             parse_mode=constants.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🎯 Next Riddle", callback_data=f"ph:next:{group_id}"),
+                InlineKeyboardButton("🎯 Agli Paheli", callback_data=f"ph:next:{group_id}"),
             ]]),
         )
     except TelegramError as e:
@@ -402,37 +391,42 @@ def _cancel_timeout(context, session_id: str):
         job.schedule_removal()
 
 
-# ─── Message handler — answer detection ───────────────────────────────────────
+# ─── MCQ Option callback ───────────────────────────────────────────────────────
 
-async def paheli_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Intercepts group messages and checks for correct riddle answers."""
-    if not update.message or not update.message.text:
+async def cb_paheli_option(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles when a user taps one of the 8 MCQ option buttons."""
+    query      = update.callback_query
+    parts      = query.data.split(":")  # ph:opt:{session_id}:{index}
+    session_id = parts[2]
+    opt_index  = int(parts[3])
+    user       = query.from_user
+
+    session = pdb.get_active_paheli_by_session(session_id)
+    if not session or not session.get("active"):
+        await query.answer("⏰ Yeh paheli pehle se khatam ho gayi.", show_alert=True)
         return
 
-    chat = update.effective_chat
-    user = update.effective_user
+    riddle  = session["riddle"]
+    options = riddle.get("options", [])
 
-    if chat.type == "private":
+    if opt_index >= len(options):
+        await query.answer("❌ Invalid option.", show_alert=True)
         return
 
-    if pdb.is_banned(user.id):
+    chosen    = options[opt_index]
+    correct   = riddle.get("answer", "")
+    is_right  = (chosen.strip().lower() == correct.strip().lower())
+
+    if not is_right:
+        # Wrong answer — just notify this user, game continues
+        await query.answer(f"❌ Galat! '{chosen}' sahi nahi hai. Doosra try karo!", show_alert=True)
         return
 
-    text = update.message.text.strip()
-
-    session = pdb.get_active_paheli(chat.id)
-    if not session:
-        return
-
-    riddle     = session["riddle"]
-    session_id = session["session_id"]
-
-    if not _answers_match(text, riddle["answer"]):
-        return
-
-    # Correct!
+    # ── Correct answer ──────────────────────────────────────────────────────
     if not pdb.solve_paheli(session_id, user.id):
-        return  # race condition — already solved
+        # Race condition — someone else already solved it
+        await query.answer("Paheli pehle hi solve ho gayi! 🎉", show_alert=True)
+        return
 
     _cancel_timeout(context, session_id)
 
@@ -442,22 +436,30 @@ async def paheli_answer_handler(update: Update, context: ContextTypes.DEFAULT_TY
     points     = pts_data["no_hint"] if hints_used == 0 else pts_data["base"]
 
     pdb.ensure_player(user.id, user.first_name or "", user.username or "")
-    pdb.record_paheli_score(user.id, chat.id, session_id, riddle["id"], points, difficulty)
+    pdb.record_paheli_score(user.id, query.message.chat.id, session_id,
+                            riddle["id"], points, difficulty)
     reward = pdb.grant_xp_coins(user.id, pts_data["xp"], pts_data["coins"])
 
     player   = pdb.get_player(user.id)
     name     = _display_name(user)
     d_emoji  = DIFFICULTY_EMOJI.get(difficulty, "🟡")
-    no_hint_bonus = " (+Bonus no-hint!)" if hints_used == 0 else ""
+    hint_str = " (+No-hint bonus!)" if hints_used == 0 else ""
+
+    # Find which label was correct
+    correct_label = ""
+    for i, opt in enumerate(options):
+        if opt.strip().lower() == correct.strip().lower():
+            correct_label = OPTION_LABELS[i]
+            break
 
     lines = [
         "━━━━━━━━━━━━━━━━━━",
-        f"🎉 <b>CORRECT ANSWER!</b>",
+        f"🎉 <b>SAHI JAWAB!</b>",
         "━━━━━━━━━━━━━━━━━━\n",
-        f"🏆 <b>{name}</b> solved the riddle! 🎊\n",
-        f"🔑 <b>Answer:</b> <code>{_primary_answer(riddle['answer']).title()}</code>",
-        f"{d_emoji} <b>Difficulty:</b> {difficulty.title()}",
-        f"⭐ <b>Points:</b> +{points}{no_hint_bonus}",
+        f"🏆 <b>{name}</b> ne paheli bujhi! 🎊\n",
+        f"🔑 <b>Jawab:</b> {correct_label} <b>{correct}</b>",
+        f"{d_emoji} <b>Level:</b> {difficulty.title()}",
+        f"⭐ <b>Points:</b> +{points}{hint_str}",
         f"🔮 <b>XP:</b> +{reward.get('xp_gained', 0)}",
         f"🪙 <b>Coins:</b> +{reward.get('coins_gained', 0)}",
     ]
@@ -473,116 +475,33 @@ async def paheli_answer_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     if player:
         lines.append(
-            f"\n📊 <b>Your Stats:</b> Lv.{player.get('level',0)} | "
-            f"{player.get('xp',0)} XP | {player.get('coins',0)} 🪙"
+            f"\n📊 <b>Aapke Stats:</b> Lv.{player.get('level', 0)} | "
+            f"{player.get('xp', 0)} XP | {player.get('coins', 0)} 🪙"
         )
 
     lines.append("\n━━━━━━━━━━━━━━━━━━")
 
-    await update.message.reply_text(
+    await query.answer("✅ SAHI JAWAB! Shabaash!")
+
+    # Edit original message to disable buttons
+    try:
+        await query.edit_message_reply_markup(
+            reply_markup=_options_keyboard(session_id, riddle, hints_used, disabled=True)
+        )
+    except TelegramError:
+        pass
+
+    await query.message.reply_text(
         "\n".join(lines),
         parse_mode=constants.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎯 Next Riddle", callback_data=f"ph:next:{chat.id}"),
+            InlineKeyboardButton("🎯 Agli Paheli", callback_data=f"ph:next:{query.message.chat.id}"),
             InlineKeyboardButton("📊 Leaderboard", callback_data="ph:lb:all:global"),
         ]]),
     )
 
 
-# ─── /answer (explicit answer command for DMs) ────────────────────────────────
-
-async def cmd_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    chat = update.effective_chat
-
-    if not context.args:
-        await update.message.reply_text(
-            "Usage: /answer <your answer>\nExample: /answer keyboard"
-        )
-        return
-
-    answer_text = " ".join(context.args)
-    session = pdb.get_active_paheli(chat.id)
-
-    if not session:
-        await update.message.reply_text("❌ No active riddle. Use /paheli to start one!")
-        return
-
-    riddle = session["riddle"]
-    if _answers_match(answer_text, riddle["answer"]):
-        # Simulate correct answer
-        update.message.text = answer_text
-        await paheli_answer_handler(update, context)
-    else:
-        await update.message.reply_text(
-            f"❌ <b>Wrong answer!</b> Try again.\n"
-            f"💡 Use /hint if you're stuck.",
-            parse_mode=constants.ParseMode.HTML,
-        )
-
-
-# ─── /hint ────────────────────────────────────────────────────────────────────
-
-async def cmd_paheli_hint(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    chat = update.effective_chat
-
-    if pdb.is_banned(user.id):
-        return
-
-    cd = pdb.check_cooldown(user.id, "ph_hint", HINT_COOLDOWN_SECONDS)
-    if cd > 0:
-        await update.message.reply_text(
-            f"⏳ Wait <b>{cd}s</b> before requesting another hint.",
-            parse_mode=constants.ParseMode.HTML,
-        )
-        return
-
-    session = pdb.get_active_paheli(chat.id)
-    if not session:
-        await update.message.reply_text("❌ No active riddle. Use /paheli to start one!")
-        return
-
-    riddle     = session["riddle"]
-    hints      = riddle.get("hints", [])
-    hints_used = session.get("hints_used", 0)
-
-    if hints_used >= MAX_HINTS_PER_SESSION or hints_used >= len(hints):
-        await update.message.reply_text(
-            f"❌ No more hints available! ({hints_used}/{MAX_HINTS_PER_SESSION} used)"
-        )
-        return
-
-    # Check if player has hint tokens or use free hints
-    player = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
-    inventory = player.get("inventory", {})
-    hint_tokens = inventory.get("hints", 0)
-
-    if hints_used >= 1 and hint_tokens <= 0:
-        await update.message.reply_text(
-            "❌ You need a <b>Hint Token</b> for extra hints!\n"
-            "Buy them in /shop (50 coins each) or earn them daily.",
-            parse_mode=constants.ParseMode.HTML,
-        )
-        return
-
-    if hints_used >= 1:
-        pdb.use_inventory_item(user.id, "hint")
-
-    new_count = pdb.increment_hints(session["session_id"])
-    pdb.set_cooldown(user.id, "ph_hint", HINT_COOLDOWN_SECONDS)
-
-    hint_text = hints[hints_used] if hints_used < len(hints) else "No more hints!"
-    name = _display_name(user)
-
-    await update.message.reply_text(
-        f"💡 <b>Hint #{new_count}</b> (requested by {name}):\n\n"
-        f"<i>{hint_text}</i>\n\n"
-        f"💡 Hints used: <b>{new_count}/{MAX_HINTS_PER_SESSION}</b>\n"
-        f"⚠️ Using hints reduces your points!",
-        parse_mode=constants.ParseMode.HTML,
-    )
-
+# ─── /hint via button ─────────────────────────────────────────────────────────
 
 async def cb_paheli_hint(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Inline hint button callback."""
@@ -594,7 +513,7 @@ async def cb_paheli_hint(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     session = pdb.get_active_paheli_by_session(session_id)
     if not session or not session.get("active"):
-        await query.answer("⏰ This riddle has expired.", show_alert=True)
+        await query.answer("⏰ Yeh paheli pehle se khatam ho gayi.", show_alert=True)
         return
 
     riddle     = session["riddle"]
@@ -603,14 +522,14 @@ async def cb_paheli_hint(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if hints_used >= MAX_HINTS_PER_SESSION or hints_used >= len(hints):
         await query.answer(
-            f"No more hints! ({hints_used}/{MAX_HINTS_PER_SESSION} used)",
+            f"Aur hints nahi hain! ({hints_used}/{MAX_HINTS_PER_SESSION} use ho gaye)",
             show_alert=True
         )
         return
 
     cd = pdb.check_cooldown(user.id, "ph_hint", HINT_COOLDOWN_SECONDS)
     if cd > 0:
-        await query.answer(f"⏳ Wait {cd}s before next hint.", show_alert=True)
+        await query.answer(f"⏳ {cd}s baad hint lo.", show_alert=True)
         return
 
     player     = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
@@ -619,7 +538,7 @@ async def cb_paheli_hint(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if hints_used >= 1 and hint_tokens <= 0:
         await query.answer(
-            "❌ You need a Hint Token! Buy in /shop (50 coins each).",
+            "❌ Hint Token chahiye! /shop se 50 coins mein kharido.",
             show_alert=True
         )
         return
@@ -630,26 +549,89 @@ async def cb_paheli_hint(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_count = pdb.increment_hints(session_id)
     pdb.set_cooldown(user.id, "ph_hint", HINT_COOLDOWN_SECONDS)
 
-    hint_text = hints[hints_used] if hints_used < len(hints) else "No more hints!"
-    name = _display_name(user)
+    hint_text = hints[hints_used] if hints_used < len(hints) else "Aur hints nahi hain!"
+    name      = _display_name(user)
 
-    # Edit the message to show updated hint count
+    # Update riddle message with new hint count
     try:
         await query.edit_message_text(
-            _make_riddle_text(session["riddle"], hint_count=new_count),
+            _make_riddle_text(riddle, hint_count=new_count),
             parse_mode=constants.ParseMode.HTML,
-            reply_markup=_riddle_keyboard(session_id, new_count),
+            reply_markup=_options_keyboard(session_id, riddle, new_count),
         )
     except TelegramError:
         pass
 
     await query.message.reply_text(
-        f"💡 <b>Hint #{new_count}</b> by {name}: <i>{hint_text}</i>",
+        f"💡 <b>Hint #{new_count}</b> ({name} ne manga):\n\n"
+        f"<i>{hint_text}</i>\n\n"
+        f"⚠️ Hint lene se points kam hote hain!",
         parse_mode=constants.ParseMode.HTML,
     )
 
 
-# ─── /skip ────────────────────────────────────────────────────────────────────
+# ─── /hint command ────────────────────────────────────────────────────────────
+
+async def cmd_paheli_hint(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if pdb.is_banned(user.id):
+        return
+
+    cd = pdb.check_cooldown(user.id, "ph_hint", HINT_COOLDOWN_SECONDS)
+    if cd > 0:
+        await update.message.reply_text(
+            f"⏳ <b>{cd}s</b> baad hint lena.",
+            parse_mode=constants.ParseMode.HTML,
+        )
+        return
+
+    session = pdb.get_active_paheli(chat.id)
+    if not session:
+        await update.message.reply_text("❌ Koi paheli active nahi. /paheli se shuru karo!")
+        return
+
+    riddle     = session["riddle"]
+    hints      = riddle.get("hints", [])
+    hints_used = session.get("hints_used", 0)
+
+    if hints_used >= MAX_HINTS_PER_SESSION or hints_used >= len(hints):
+        await update.message.reply_text(
+            f"❌ Aur hints nahi hain! ({hints_used}/{MAX_HINTS_PER_SESSION} use ho gaye)"
+        )
+        return
+
+    player     = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
+    inventory  = player.get("inventory", {})
+    hint_tokens = inventory.get("hints", 0)
+
+    if hints_used >= 1 and hint_tokens <= 0:
+        await update.message.reply_text(
+            "❌ Hint Token chahiye!\n"
+            "/shop se 50 coins mein kharido.",
+        )
+        return
+
+    if hints_used >= 1:
+        pdb.use_inventory_item(user.id, "hint")
+
+    new_count = pdb.increment_hints(session["session_id"])
+    pdb.set_cooldown(user.id, "ph_hint", HINT_COOLDOWN_SECONDS)
+
+    hint_text = hints[hints_used] if hints_used < len(hints) else "Aur hints nahi hain!"
+    name      = _display_name(user)
+
+    await update.message.reply_text(
+        f"💡 <b>Hint #{new_count}</b> ({name} ne manga):\n\n"
+        f"<i>{hint_text}</i>\n\n"
+        f"💡 Hints used: <b>{new_count}/{MAX_HINTS_PER_SESSION}</b>\n"
+        f"⚠️ Hint lene se points kam hote hain!",
+        parse_mode=constants.ParseMode.HTML,
+    )
+
+
+# ─── /skip ─────────────────────────────────────────────────────────────────────
 
 async def cmd_paheli_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -657,7 +639,7 @@ async def cmd_paheli_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     session = pdb.get_active_paheli(chat.id)
     if not session:
-        await update.message.reply_text("❌ No active riddle!")
+        await update.message.reply_text("❌ Koi paheli active nahi!")
         return
 
     player    = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
@@ -666,23 +648,31 @@ async def cmd_paheli_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if skips <= 0:
         await update.message.reply_text(
-            "❌ You have no Skip Tokens!\n"
-            "Buy them in /shop (75 coins each).",
+            "❌ Aapke paas Skip Token nahi hai!\n"
+            "/shop se 75 coins mein kharido.",
         )
         return
 
-    riddle = session["riddle"]
+    riddle     = session["riddle"]
+    correct    = riddle.get("answer", "?")
+    options    = riddle.get("options", [])
+    ans_label  = ""
+    for i, opt in enumerate(options):
+        if opt.strip().lower() == correct.strip().lower():
+            ans_label = f"{OPTION_LABELS[i]} "
+            break
+
     pdb.use_inventory_item(user.id, "skip")
     pdb.skip_paheli(session["session_id"])
     _cancel_timeout(context, session["session_id"])
 
     await update.message.reply_text(
-        f"⏭ <b>Riddle Skipped!</b>\n\n"
-        f"🔑 <b>Answer was:</b> <code>{_primary_answer(riddle['answer']).title()}</code>\n\n"
-        f"Use /paheli for the next riddle!",
+        f"⏭ <b>Paheli Skip Kar Di!</b>\n\n"
+        f"🔑 <b>Sahi Jawab:</b> {ans_label}<b>{correct}</b>\n\n"
+        f"Agli paheli ke liye /paheli likhein!",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎯 Next Riddle", callback_data=f"ph:next:{chat.id}"),
+            InlineKeyboardButton("🎯 Agli Paheli", callback_data=f"ph:next:{chat.id}"),
         ]]),
     )
 
@@ -694,7 +684,7 @@ async def cb_paheli_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     session = pdb.get_active_paheli_by_session(session_id)
     if not session or not session.get("active"):
-        await query.answer("This riddle has already ended.", show_alert=True)
+        await query.answer("Yeh paheli pehle hi khatam ho gayi.", show_alert=True)
         return
 
     player    = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
@@ -703,28 +693,29 @@ async def cb_paheli_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if skips <= 0:
         await query.answer(
-            "❌ No Skip Tokens! Buy in /shop (75 coins each).",
+            "❌ Skip Token nahi hai! /shop se 75 coins mein kharido.",
             show_alert=True
         )
         return
 
-    riddle = session["riddle"]
+    riddle  = session["riddle"]
+    correct = riddle.get("answer", "?")
     pdb.use_inventory_item(user.id, "skip")
     pdb.skip_paheli(session_id)
     _cancel_timeout(context, session_id)
 
-    await query.answer("Riddle skipped!")
+    await query.answer("Paheli skip!")
     try:
         await query.edit_message_text(
-            f"⏭ <b>Riddle Skipped!</b>\n"
-            f"🔑 <b>Answer:</b> <code>{_primary_answer(riddle['answer']).title()}</code>",
+            f"⏭ <b>Paheli Skip Kar Di!</b>\n"
+            f"🔑 <b>Sahi Jawab:</b> <b>{correct}</b>",
             parse_mode=constants.ParseMode.HTML,
         )
     except TelegramError:
         pass
 
     await query.message.reply_text(
-        "Use /paheli for the next riddle! 🎯"
+        "Agli paheli ke liye /paheli likhein! 🎯"
     )
 
 
@@ -736,27 +727,28 @@ async def cb_paheli_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = int(parts[2]) if len(parts) > 2 else query.message.chat.id
     user    = query.from_user
 
-    await query.answer("Starting next riddle…")
+    await query.answer("Agli paheli la raha hoon…")
 
     cd = pdb.check_cooldown(user.id, "paheli", PAHELI_COOLDOWN_SECONDS)
     if cd > 0:
-        await query.answer(f"⏳ Wait {cd}s before next riddle.", show_alert=True)
+        await query.answer(f"⏳ {cd}s baad try karo.", show_alert=True)
         return
 
     existing = pdb.get_active_paheli(chat_id)
     if existing:
-        await query.answer("A riddle is already active!", show_alert=True)
+        await query.answer("Ek paheli pehle se chal rahi hai!", show_alert=True)
         return
 
-    player = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
-    settings   = player.get("settings", {})
-    language   = "all" if settings.get("language", "both") == "both" else settings.get("language")
-    difficulty = settings.get("difficulty", "all")
+    pdb.ensure_player(user.id, user.first_name or "", user.username or "")
 
-    riddle = _pick_riddle(chat_id, difficulty=difficulty, language=language)
+    riddle = _pick_riddle(chat_id)
     if not riddle:
-        await query.message.reply_text("❌ No more riddles available!")
+        await query.message.reply_text("❌ Aur paheliyan nahi hain!")
         return
+
+    options = riddle.get("options", [])
+    random.shuffle(options)
+    riddle = {**riddle, "options": options}
 
     session_id = str(uuid.uuid4())
     pdb.create_paheli_session(session_id, riddle, chat_id, user.id)
@@ -766,7 +758,7 @@ async def cb_paheli_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent = await query.message.reply_text(
         text,
         parse_mode=constants.ParseMode.HTML,
-        reply_markup=_riddle_keyboard(session_id, 0),
+        reply_markup=_options_keyboard(session_id, riddle, 0),
     )
 
     context.job_queue.run_once(
@@ -799,26 +791,26 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
             h, rem    = divmod(remaining, 3600)
             m, s      = divmod(rem, 60)
             await update.message.reply_text(
-                f"⏳ Daily already claimed!\n"
-                f"Next daily in: <b>{h}h {m}m {s}s</b>",
+                f"⏳ Daily pehle le chuke ho!\n"
+                f"Agli daily mein: <b>{h}h {m}m {s}s</b>",
                 parse_mode=constants.ParseMode.HTML,
             )
         return
 
-    streak = reward["streak"]
+    streak       = reward["streak"]
     streak_bonus = "🔥 Streak bonus!" if streak > 1 else ""
-    weekly_hint  = f"\n🎁 <b>Week complete!</b> +1 💎 Gem!" if streak % 7 == 0 else ""
+    weekly_hint  = f"\n🎁 <b>7 din poore!</b> +1 💎 Gem!" if streak % 7 == 0 else ""
 
     await update.message.reply_text(
         "━━━━━━━━━━━━━━━━━━\n"
-        "🌅 <b>DAILY REWARD CLAIMED!</b>\n"
+        "🌅 <b>DAILY REWARD MILA!</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         f"🪙 +<b>{reward['coins']}</b> Coins\n"
         f"🔮 +<b>{reward['xp']}</b> XP\n"
         + (f"💎 +<b>{reward['gems']}</b> Gem(s)\n" if reward.get("gems") else "") +
-        f"\n🔥 <b>Streak:</b> {streak} day{'s' if streak != 1 else ''} {streak_bonus}"
+        f"\n🔥 <b>Streak:</b> {streak} din {streak_bonus}"
         + weekly_hint +
-        "\n\n✅ Come back tomorrow to keep your streak!",
+        "\n\n✅ Kal wapas aana streak ke liye!",
         parse_mode=constants.ParseMode.HTML,
     )
 
@@ -826,25 +818,25 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /weekly ──────────────────────────────────────────────────────────────────
 
 async def cmd_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user   = update.effective_user
+    user = update.effective_user
     pdb.ensure_player(user.id, user.first_name or "", user.username or "")
 
     reward = pdb.claim_weekly(user.id)
     if not reward:
         await update.message.reply_text(
-            "⏳ Weekly reward already claimed!\n"
-            "Come back next week for your next reward. 📅"
+            "⏳ Weekly reward pehle le chuke ho!\n"
+            "Agle hafte aana. 📅"
         )
         return
 
     await update.message.reply_text(
         "━━━━━━━━━━━━━━━━━━\n"
-        "📅 <b>WEEKLY REWARD CLAIMED!</b>\n"
+        "📅 <b>WEEKLY REWARD MILA!</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         f"🪙 +<b>{reward['coins']}</b> Coins\n"
         f"🔮 +<b>{reward['xp']}</b> XP\n"
         f"💎 +<b>{reward['gems']}</b> Gems\n\n"
-        "🎉 See you next week!",
+        "🎉 Agle hafte milenge!",
         parse_mode=constants.ParseMode.HTML,
     )
 
@@ -856,44 +848,42 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     player = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
     name   = _display_name(user)
 
-    xp         = player.get("xp", 0)
-    level      = player.get("level", 0)
-    title      = player.get("title", pdb.TITLES[0])
-    coins      = player.get("coins", 0)
-    gems       = player.get("gems", 0)
-    streak     = player.get("daily_streak", 0)
-    solved     = player.get("riddles_solved", 0)
-    clan_id    = player.get("clan_id")
-    inventory  = player.get("inventory", {})
+    xp        = player.get("xp", 0)
+    level     = player.get("level", 0)
+    title     = player.get("title", pdb.TITLES[0])
+    coins     = player.get("coins", 0)
+    gems      = player.get("gems", 0)
+    streak    = player.get("daily_streak", 0)
+    solved    = player.get("riddles_solved", 0)
+    clan_id   = player.get("clan_id")
+    inventory = player.get("inventory", {})
     xp_needed, next_thresh = pdb.xp_for_next_level(xp)
 
-    # XP progress bar
     if next_thresh > 0:
         current_level_xp = pdb.LEVEL_THRESHOLDS[level] if level < len(pdb.LEVEL_THRESHOLDS) else 0
-        span = next_thresh - current_level_xp
+        span   = next_thresh - current_level_xp
         filled = max(0, xp - current_level_xp)
         bar_filled = int((filled / span) * 10) if span else 10
-        bar = "█" * bar_filled + "░" * (10 - bar_filled)
+        bar    = "█" * bar_filled + "░" * (10 - bar_filled)
         xp_line = f"[{bar}] {xp}/{next_thresh} XP"
     else:
         xp_line = f"{xp} XP (MAX LEVEL)"
 
-    achievements = player.get("achievements", [])
-    badges       = player.get("badges", [])
-    badge_str    = " ".join(badges[:5]) if badges else "None yet"
-    clan_str     = f"🏰 {clan_id}" if clan_id else "No clan"
+    badges    = player.get("badges", [])
+    badge_str = " ".join(badges[:5]) if badges else "Abhi koi nahi"
+    clan_str  = f"🏰 {clan_id}" if clan_id else "Kisi clan mein nahi"
 
     await update.message.reply_text(
         "━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>{name}'s Profile</b>\n"
+        f"👤 <b>{name} ka Profile</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        f"🎖 <b>Title:</b> {title}\n"
+        f"🎖 <b>Unvan:</b> {title}\n"
         f"⚡ <b>Level:</b> {level}\n"
         f"📊 <b>XP:</b> {xp_line}\n\n"
         f"🪙 <b>Coins:</b> {coins}\n"
         f"💎 <b>Gems:</b> {gems}\n"
-        f"🔥 <b>Streak:</b> {streak} day{'s' if streak != 1 else ''}\n\n"
-        f"🧩 <b>Riddles Solved:</b> {solved}\n"
+        f"🔥 <b>Streak:</b> {streak} din\n\n"
+        f"🧩 <b>Paheliyan Bujhi:</b> {solved}\n"
         f"💡 <b>Hint Tokens:</b> {inventory.get('hints', 0)}\n"
         f"⏭ <b>Skip Tokens:</b> {inventory.get('skips', 0)}\n\n"
         f"🏅 <b>Badges:</b> {badge_str}\n"
@@ -925,27 +915,26 @@ async def cmd_inventory(update: Update, context: ContextTypes.DEFAULT_TYPE):
             boost_until = boost_until.replace(tzinfo=timezone.utc)
         if boost_until > datetime.now(timezone.utc):
             remaining = (boost_until - datetime.now(timezone.utc)).seconds // 60
-            active_boost = f"\n⚡ <b>2× XP Boost:</b> {remaining}m remaining"
+            active_boost = f"\n⚡ <b>2× XP Boost:</b> {remaining}m baaki"
 
     await update.message.reply_text(
         "━━━━━━━━━━━━━━━━━━\n"
-        f"🎒 <b>{name}'s Inventory</b>\n"
+        f"🎒 <b>{name} ka Inventory</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         f"💡 <b>Hint Tokens:</b> {hints}\n"
         f"⏭ <b>Skip Tokens:</b> {skips}\n"
         f"⚡ <b>XP Boosts:</b> {boosts}"
         + active_boost +
-        "\n\n🛍 Visit /shop to buy more items!\n"
-        "💰 Current balance: "
-        f"<b>{player.get('coins', 0)} 🪙</b> | <b>{player.get('gems', 0)} 💎</b>",
+        "\n\n🛍 /shop se aur items kharido!\n"
+        f"💰 Balance: <b>{player.get('coins', 0)} 🪙</b> | <b>{player.get('gems', 0)} 💎</b>",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🛍 Open Shop", callback_data="ph:shop:main"),
+            InlineKeyboardButton("🛍 Shop Kholo", callback_data="ph:shop:main"),
         ]]),
     )
 
 
-# ─── /shop ────────────────────────────────────────────────────────────────────
+# ─── /shop ─────────────────────────────────────────────────────────────────────
 
 def _shop_keyboard(page: str = "main") -> InlineKeyboardMarkup:
     if page == "main":
@@ -960,7 +949,7 @@ def _shop_keyboard(page: str = "main") -> InlineKeyboardMarkup:
             [InlineKeyboardButton("⚡ 2× XP (1h) — 500🪙",  callback_data="ph:buy:double_xp")],
         ])
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("🔙 Back", callback_data="ph:shop:main"),
+        InlineKeyboardButton("🔙 Wapas", callback_data="ph:shop:main"),
     ]])
 
 
@@ -974,8 +963,8 @@ async def cmd_shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━━━━\n"
         "🛍 <b>PAHELI SHOP</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        f"💰 <b>Your Balance:</b> {coins} 🪙 | {gems} 💎\n\n"
-        "Select an item to purchase:",
+        f"💰 <b>Aapka Balance:</b> {coins} 🪙 | {gems} 💎\n\n"
+        "Koi item chunen:",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=_shop_keyboard("main"),
     )
@@ -986,7 +975,6 @@ async def cb_shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = query.data.split(":")
 
     if parts[1] == "shop":
-        # Show shop
         user   = query.from_user
         player = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
         coins  = player.get("coins", 0)
@@ -996,7 +984,7 @@ async def cb_shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 f"🛍 <b>PAHELI SHOP</b>\n\n"
                 f"💰 Balance: {coins} 🪙 | {gems} 💎\n\n"
-                "Select an item:",
+                "Koi item chunen:",
                 parse_mode=constants.ParseMode.HTML,
                 reply_markup=_shop_keyboard("main"),
             )
@@ -1014,13 +1002,13 @@ async def cb_shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     item     = pdb.SHOP_ITEMS.get(item_key)
 
     if not item:
-        await query.answer("Unknown item.", show_alert=True)
+        await query.answer("Item nahi mila.", show_alert=True)
         return
 
     cost = item["cost"]
     if not pdb.spend_coins(user.id, cost):
         await query.answer(
-            f"❌ Not enough coins! You need {cost}🪙.",
+            f"❌ Coins kam hain! {cost}🪙 chahiye.",
             show_alert=True
         )
         return
@@ -1028,34 +1016,32 @@ async def cb_shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     item_type = item["type"]
     qty       = item["quantity"]
 
-    # Handle special types
     if item_type in ("hint", "skip"):
         pdb.add_inventory(user.id, item_type, qty)
         await query.answer(
-            f"✅ Purchased {item['name']}! Check /inventory.",
+            f"✅ {item['name']} kharida! /inventory check karo.",
             show_alert=True
         )
 
     elif item_type == "lucky":
-        # Spin the wheel
-        prizes = pdb.LUCKY_WHEEL_PRIZES
+        prizes  = pdb.LUCKY_WHEEL_PRIZES
         weights = [p["weight"] for p in prizes]
-        prize  = random.choices(prizes, weights=weights, k=1)[0]
+        prize   = random.choices(prizes, weights=weights, k=1)[0]
         _give_prize(user.id, prize)
         await query.answer(
-            f"🎡 You won: {prize['label']}!",
+            f"🎡 Aapko mila: {prize['label']}!",
             show_alert=True
         )
 
     elif item_type in ("chest", "chest_gold"):
-        prize_pool = pdb.CHEST_PRIZES.get(item_type, pdb.CHEST_PRIZES["chest"])
+        prize_pool   = pdb.CHEST_PRIZES.get(item_type, pdb.CHEST_PRIZES["chest"])
         result_lines = []
         for p in prize_pool:
             amt = random.randint(p["min"], p["max"])
             _give_prize(user.id, {"type": p["type"], "amount": amt})
             result_lines.append(f"+{amt} {p['type'].title()}")
         await query.answer(
-            f"📦 Chest opened!\n" + "\n".join(result_lines),
+            f"📦 Chest khula!\n" + "\n".join(result_lines),
             show_alert=True
         )
 
@@ -1063,15 +1049,14 @@ async def cb_shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from datetime import timedelta
         boost_until = datetime.now(timezone.utc) + timedelta(hours=1)
         pdb.update_player(user.id, {"$set": {"xp_boost_until": boost_until}})
-        await query.answer("⚡ 2× XP Boost activated for 1 hour!", show_alert=True)
+        await query.answer("⚡ 1 ghante ke liye 2× XP Boost active!", show_alert=True)
 
-    # Refresh shop message
     updated = pdb.get_player(user.id)
     try:
         await query.edit_message_text(
             f"🛍 <b>PAHELI SHOP</b>\n\n"
-            f"💰 Balance: {updated.get('coins',0)} 🪙 | {updated.get('gems',0)} 💎\n\n"
-            "Select an item:",
+            f"💰 Balance: {updated.get('coins', 0)} 🪙 | {updated.get('gems', 0)} 💎\n\n"
+            "Koi item chunen:",
             parse_mode=constants.ParseMode.HTML,
             reply_markup=_shop_keyboard("main"),
         )
@@ -1115,8 +1100,8 @@ async def _send_paheli_lb(target, period: str, scope: str,
     rows = pdb.get_paheli_leaderboard(period=period, group_id=group_filter, limit=15)
 
     period_labels = {
-        "day": "Today", "week": "This Week",
-        "month": "This Month", "year": "This Year", "all": "All Time"
+        "day": "Aaj", "week": "Is Hafte",
+        "month": "Is Mahine", "year": "Is Saal", "all": "Sab Time"
     }
     period_emoji = {"day": "🟡", "week": "🟠", "month": "🔵", "year": "🟣", "all": "🏆"}
 
@@ -1124,7 +1109,7 @@ async def _send_paheli_lb(target, period: str, scope: str,
     p_label     = period_labels.get(period, period)
 
     if not rows:
-        text = f"📊 No scores yet for <b>{scope_label} — {p_label}</b>.\nSolve riddles with /paheli!"
+        text = f"📊 <b>{scope_label} — {p_label}</b> mein abhi koi score nahi.\n/paheli se paheliyan bujho!"
     else:
         lines = [f"🏆 <b>Paheli Leaderboard</b>\n{scope_label} — {p_label}\n"]
         for i, row in enumerate(rows, 1):
@@ -1133,9 +1118,8 @@ async def _send_paheli_lb(target, period: str, scope: str,
             pts   = row.get("total_points", 0)
             solved = row.get("riddles_solved", 0)
             lvl   = row.get("level", 0)
-            title = row.get("title", "Novice")
             lines.append(
-                f"{medal} <b>{name}</b> [Lv.{lvl}] — {pts} pts · {solved} solved"
+                f"{medal} <b>{name}</b> [Lv.{lvl}] — {pts} pts · {solved} bujhi"
             )
         text = "\n".join(lines)
 
@@ -1146,13 +1130,13 @@ async def _send_paheli_lb(target, period: str, scope: str,
             _lb_btn("🌍 Global", period, "global", scope),
         ])
     kb_rows.append([
-        _lb_btn(f"{period_emoji['day']}Day",   "day",   scope, period),
-        _lb_btn(f"{period_emoji['week']}Week",  "week",  scope, period),
-        _lb_btn(f"{period_emoji['month']}Month","month", scope, period),
+        _lb_btn(f"{period_emoji['day']}Aaj",    "day",   scope, period),
+        _lb_btn(f"{period_emoji['week']}Hafta",  "week",  scope, period),
+        _lb_btn(f"{period_emoji['month']}Mahina","month", scope, period),
     ])
     kb_rows.append([
-        _lb_btn(f"{period_emoji['year']}Year",    "year", scope, period),
-        _lb_btn(f"{period_emoji['all']}All Time", "all",  scope, period),
+        _lb_btn(f"{period_emoji['year']}Saal",   "year", scope, period),
+        _lb_btn(f"{period_emoji['all']}Sab Time","all",  scope, period),
     ])
     kb = InlineKeyboardMarkup(kb_rows)
 
@@ -1192,30 +1176,29 @@ async def cb_paheli_lb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /stats ───────────────────────────────────────────────────────────────────
 
 async def cmd_paheli_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user   = update.effective_user
-    player = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
-    rows   = pdb.get_paheli_leaderboard(period="all", limit=1000)
-    rank   = next((i for i, r in enumerate(rows, 1) if r["user_id"] == user.id), None)
-    name   = _display_name(user)
-
+    user         = update.effective_user
+    player       = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
+    rows         = pdb.get_paheli_leaderboard(period="all", limit=1000)
+    rank         = next((i for i, r in enumerate(rows, 1) if r["user_id"] == user.id), None)
+    name         = _display_name(user)
     global_stats = pdb.get_global_paheli_stats()
 
     await update.message.reply_text(
         "━━━━━━━━━━━━━━━━━━\n"
-        f"📊 <b>{name}'s Paheli Stats</b>\n"
+        f"📊 <b>{name} ke Paheli Stats</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         f"🌍 <b>Global Rank:</b> #{rank or 'Unranked'}\n"
         f"⚡ <b>Level:</b> {player.get('level', 0)} — {player.get('title', 'Novice')}\n"
         f"🔮 <b>XP:</b> {player.get('xp', 0)}\n"
         f"🪙 <b>Coins:</b> {player.get('coins', 0)}\n"
         f"💎 <b>Gems:</b> {player.get('gems', 0)}\n"
-        f"🧩 <b>Riddles Solved:</b> {player.get('riddles_solved', 0)}\n"
+        f"🧩 <b>Paheliyan Bujhi:</b> {player.get('riddles_solved', 0)}\n"
         f"🔥 <b>Daily Streak:</b> {player.get('daily_streak', 0)}\n\n"
         "━ <b>Global Paheli Stats</b> ━\n"
         f"👥 Total Players: <b>{global_stats['total_players']}</b>\n"
         f"🎮 Total Games: <b>{global_stats['total_sessions']}</b>\n"
-        f"✅ Solved: <b>{global_stats['total_solved']}</b>\n"
-        f"⏭ Skipped: <b>{global_stats['total_skipped']}</b>",
+        f"✅ Solve Hui: <b>{global_stats['total_solved']}</b>\n"
+        f"⏭ Skip Hui: <b>{global_stats['total_skipped']}</b>",
         parse_mode=constants.ParseMode.HTML,
     )
 
@@ -1227,31 +1210,28 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     player = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
     s      = player.get("settings", {})
 
-    lang_label = {"both": "🌐 Both", "en": "🇬🇧 English", "hi": "🇮🇳 Hindi"}.get(
-        s.get("language", "both"), "🌐 Both"
-    )
     diff_label = {
-        "all": "🎲 All",
-        "easy": "🟢 Easy",
-        "medium": "🟡 Medium",
-        "hard": "🔴 Hard",
-        "legendary": "💀 Legendary",
-    }.get(s.get("difficulty", "all"), "🎲 All")
+        "all":       "🎲 Sab",
+        "easy":      "🟢 Saral",
+        "medium":    "🟡 Madhyam",
+        "hard":      "🔴 Kathin",
+        "legendary": "💀 Ati Kathin",
+    }.get(s.get("difficulty", "all"), "🎲 Sab")
 
     await update.message.reply_text(
         "━━━━━━━━━━━━━━━━━━\n"
         "⚙️ <b>Paheli Settings</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        f"🌐 <b>Language:</b> {lang_label}\n"
-        f"🎯 <b>Difficulty:</b> {diff_label}\n\n"
-        "Tap a button to change:",
+        "ℹ️ <b>Note:</b> Difficulty ab auto-rotate karta hai:\n"
+        "Saral → Madhyam → Kathin → Ati Kathin → repeat\n\n"
+        f"🎯 <b>Manual Override:</b> {diff_label}\n\n"
+        "Badlne ke liye button dabao:",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=_settings_keyboard(s),
     )
 
 
 def _settings_keyboard(s: dict) -> InlineKeyboardMarkup:
-    lang = s.get("language", "both")
     diff = s.get("difficulty", "all")
 
     def _lb(label, val, current, key):
@@ -1259,42 +1239,36 @@ def _settings_keyboard(s: dict) -> InlineKeyboardMarkup:
         return InlineKeyboardButton(f"{label}{mark}", callback_data=f"ph:set:{key}:{val}")
 
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🌐 Language", callback_data="ph:noop")],
-        [
-            _lb("🌐 Both",     "both", lang, "language"),
-            _lb("🇬🇧 English", "en",   lang, "language"),
-            _lb("🇮🇳 Hindi",   "hi",   lang, "language"),
-        ],
         [InlineKeyboardButton("🎯 Difficulty", callback_data="ph:noop")],
         [
-            _lb("🎲 All",    "all",    diff, "difficulty"),
-            _lb("🟢 Easy",   "easy",   diff, "difficulty"),
-            _lb("🟡 Medium", "medium", diff, "difficulty"),
+            _lb("🎲 Auto",    "all",    diff, "difficulty"),
+            _lb("🟢 Saral",   "easy",   diff, "difficulty"),
+            _lb("🟡 Madhyam", "medium", diff, "difficulty"),
         ],
         [
-            _lb("🔴 Hard", "hard", diff, "difficulty"),
-            _lb("💀 Legendary", "legendary", diff, "difficulty"),
+            _lb("🔴 Kathin",       "hard",      diff, "difficulty"),
+            _lb("💀 Ati Kathin",   "legendary", diff, "difficulty"),
         ],
     ])
 
 
 async def cb_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query  = update.callback_query
-    parts  = query.data.split(":")
+    query = update.callback_query
+    parts = query.data.split(":")
 
     if parts[1] == "noop":
         await query.answer()
         return
 
-    key   = parts[2]  # language / difficulty
+    key   = parts[2]
     value = parts[3]
     user  = query.from_user
 
     pdb.update_player(user.id, {"$set": {f"settings.{key}": value}})
-    await query.answer(f"✅ {key.title()} set to {value}!")
+    await query.answer(f"✅ {key.title()} set ho gaya: {value}!")
 
     player = pdb.get_player(user.id)
-    s = player.get("settings", {})
+    s      = player.get("settings", {})
     try:
         await query.edit_message_reply_markup(reply_markup=_settings_keyboard(s))
     except TelegramError:
@@ -1304,33 +1278,37 @@ async def cb_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /challenge (PvP) ─────────────────────────────────────────────────────────
 
 async def cmd_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user  = update.effective_user
-    chat  = update.effective_chat
-    msg   = update.message
+    user = update.effective_user
+    chat = update.effective_chat
+    msg  = update.message
 
     if chat.type == "private":
-        await msg.reply_text("⚠️ Challenges can only be started in groups!")
+        await msg.reply_text("⚠️ Challenge sirf groups mein start hota hai!")
         return
 
     if not msg.reply_to_message:
         await msg.reply_text(
-            "Usage: Reply to a user's message and use /challenge\n"
-            "Example: Reply to @someone → /challenge"
+            "Kisi ki message reply karke /challenge karo\n"
+            "Example: @kisiko reply karo → /challenge"
         )
         return
 
     target = msg.reply_to_message.from_user
     if target.id == user.id:
-        await msg.reply_text("❌ You can't challenge yourself!")
+        await msg.reply_text("❌ Khud ko challenge nahi kar sakte!")
         return
     if target.is_bot:
-        await msg.reply_text("❌ You can't challenge a bot!")
+        await msg.reply_text("❌ Bot ko challenge nahi kar sakte!")
         return
 
     riddle = _pick_riddle(chat.id)
     if not riddle:
-        await msg.reply_text("❌ No riddles available for a challenge!")
+        await msg.reply_text("❌ Challenge ke liye koi paheli nahi mili!")
         return
+
+    options = riddle.get("options", [])
+    random.shuffle(options)
+    riddle = {**riddle, "options": options}
 
     challenge_id = str(uuid.uuid4())[:8]
     pdb.ensure_player(user.id,   user.first_name or "",   user.username or "")
@@ -1342,15 +1320,15 @@ async def cmd_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await msg.reply_text(
         f"⚔️ <b>PvP CHALLENGE!</b>\n\n"
-        f"⚔️ <b>{challenger_name}</b> challenged <b>{target_name}</b>!\n\n"
-        f"🧩 <b>Riddle:</b>\n{riddle['question']}\n\n"
-        f"⏱ First to answer wins the challenge!\n"
-        f"Expires in <b>10 minutes</b>.\n\n"
+        f"⚔️ <b>{challenger_name}</b> ne <b>{target_name}</b> ko challenge kiya!\n\n"
+        f"🧩 <b>Paheli:</b>\n{riddle['question']}\n\n"
+        f"⏱ Pehle sahi button dabane wala jeeta!\n"
+        f"Expires: <b>10 minutes</b>\n\n"
         f"Challenge ID: <code>{challenge_id}</code>",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton(
-                f"✅ Accept Challenge",
+                "✅ Challenge Accept Karo",
                 callback_data=f"ph:accept_challenge:{challenge_id}"
             ),
         ]]),
@@ -1364,66 +1342,76 @@ async def cb_accept_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     ch = pdb.get_challenge(challenge_id)
     if not ch:
-        await query.answer("Challenge not found or expired.", show_alert=True)
+        await query.answer("Challenge nahi mila ya expire ho gaya.", show_alert=True)
         return
 
     if user.id not in (ch["challenger_id"], ch["challenged_id"]):
-        await query.answer("❌ This challenge is not for you!", show_alert=True)
+        await query.answer("❌ Yeh challenge tumhara nahi!", show_alert=True)
         return
 
     if ch["status"] != "pending":
-        await query.answer("This challenge has already started or ended.", show_alert=True)
+        await query.answer("Challenge pehle se start ya khatam ho gaya.", show_alert=True)
         return
 
     pdb.accept_challenge(challenge_id)
-    await query.answer("Challenge accepted! Type your answer first to win!")
+    await query.answer("Challenge accept! Sahi button dabo!")
 
-    riddle = ch["riddle"]
+    riddle  = ch["riddle"]
+    options = riddle.get("options", [])
+    session_id = str(uuid.uuid4())
+    pdb.create_paheli_session(session_id, riddle, query.message.chat.id, user.id)
+
     await query.message.reply_text(
-        f"⚔️ <b>CHALLENGE IS ON!</b>\n\n"
-        f"🧩 <b>Riddle:</b>\n{riddle['question']}\n\n"
-        f"⏱ First to type the correct answer wins!\n"
-        f"💡 Use /hint for help (reduces reward)",
+        f"⚔️ <b>CHALLENGE SHURU!</b>\n\n"
+        f"🧩 <b>Paheli:</b>\n{riddle['question']}\n\n"
+        f"👇 <b>Sahi jawab button dabao!</b>",
         parse_mode=constants.ParseMode.HTML,
+        reply_markup=_options_keyboard(session_id, riddle, 0),
+    )
+
+    context.job_queue.run_once(
+        _paheli_timeout,
+        when=RIDDLE_TIMEOUT_SECONDS,
+        data={"session_id": session_id, "group_id": query.message.chat.id,
+              "msg_id": query.message.message_id},
+        name=f"ph_timeout_{session_id}",
     )
 
 
-# ─── /clan ────────────────────────────────────────────────────────────────────
+# ─── /clan ─────────────────────────────────────────────────────────────────────
 
 async def cmd_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user  = update.effective_user
-    args  = context.args or []
+    user = update.effective_user
+    args = context.args or []
 
     if not args:
-        player = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
+        player  = pdb.ensure_player(user.id, user.first_name or "", user.username or "")
         clan_id = player.get("clan_id")
 
         if clan_id:
             clan = pdb.get_clan(clan_id)
             if clan:
                 members_count = len(clan.get("members", []))
-                level = clan.get("level", 1)
-                xp = clan.get("xp", 0)
-                max_members = clan.get("max_members", 10)
+                level         = clan.get("level", 1)
+                xp            = clan.get("xp", 0)
+                max_members   = clan.get("max_members", 10)
 
                 next_level = pdb.CLAN_LEVELS.get(level + 1)
-
                 if next_level:
-                    prev = pdb.CLAN_LEVELS[level]
+                    prev     = pdb.CLAN_LEVELS[level]
                     progress = xp - prev
-                    needed = next_level - prev
-                    filled = int((progress / needed) * 10)
-                    bar = "█" * filled + "░" * (10 - filled)
-                    xp_bar = f"{bar} {xp}/{next_level}"
+                    needed   = next_level - prev
+                    filled   = int((progress / needed) * 10)
+                    bar      = "█" * filled + "░" * (10 - filled)
+                    xp_bar   = f"{bar} {xp}/{next_level}"
                 else:
                     xp_bar = "MAX LEVEL"
 
                 await update.message.reply_text(
-                    f"🏰 <b>Your Clan: {clan['clan_name']}</b> [{clan['clan_tag']}]\n\n"
+                    f"🏰 <b>Tumhara Clan: {clan['clan_name']}</b> [{clan['clan_tag']}]\n\n"
                     f"⭐ <b>Level:</b> {level}\n"
                     f"👥 <b>Members:</b> {members_count}/{max_members}\n"
-                    f"📊 <b>Clan XP:</b>\n{xp_bar}\n"
-                    f"🏆 <b>Total XP:</b> {xp}\n\n"
+                    f"📊 <b>Clan XP:</b>\n{xp_bar}\n\n"
                     "Commands:\n"
                     "/clan leave\n"
                     "/clan info TAG\n"
@@ -1434,11 +1422,11 @@ async def cmd_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(
             "🏰 <b>Clan System</b>\n\n"
-            "You're not in a clan!\n\n"
+            "Tum kisi clan mein nahi ho!\n\n"
             "Commands:\n"
-            "/clan create TAG NAME — Create a clan (TAG: 3-5 letters)\n"
-            "/clan join TAG — Join a clan\n"
-            "/clan info TAG — View clan info\n"
+            "/clan create TAG NAME — Clan banao (TAG: 3-5 letters)\n"
+            "/clan join TAG — Clan join karo\n"
+            "/clan info TAG — Clan info dekho\n"
             "/clan top — Top clans",
             parse_mode=constants.ParseMode.HTML,
         )
@@ -1450,54 +1438,54 @@ async def cmd_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clan_tag  = args[1].upper()
         clan_name = " ".join(args[2:])
         if not (3 <= len(clan_tag) <= 5 and clan_tag.isalpha()):
-            await update.message.reply_text("❌ Clan tag must be 3-5 letters only.")
+            await update.message.reply_text("❌ Clan tag 3-5 letters ka hona chahiye.")
             return
         pdb.ensure_player(user.id, user.first_name or "", user.username or "")
         success = pdb.create_clan(clan_tag, clan_name, user.id)
         if success:
             await update.message.reply_text(
-                f"🏰 Clan <b>{clan_name}</b> [{clan_tag}] created successfully!"
-                f"\nYou are the clan owner!",
+                f"🏰 Clan <b>{clan_name}</b> [{clan_tag}] bana gaya!\n"
+                f"Tum clan owner ho!",
                 parse_mode=constants.ParseMode.HTML,
             )
         else:
             await update.message.reply_text(
-                f"❌ Clan tag [{clan_tag}] is already taken. Choose a different tag."
+                f"❌ Clan tag [{clan_tag}] pehle se le gaya. Doosra tag chunein."
             )
 
     elif sub == "join" and len(args) >= 2:
-        tag = args[1].upper()
+        tag    = args[1].upper()
         pdb.ensure_player(user.id, user.first_name or "", user.username or "")
         player = pdb.get_player(user.id)
         if player.get("clan_id"):
-            await update.message.reply_text("❌ You're already in a clan! /clan leave first.")
+            await update.message.reply_text("❌ Tum pehle se ek clan mein ho! /clan leave pehle.")
             return
         success = pdb.join_clan(user.id, tag)
         if success:
-            await update.message.reply_text(f"✅ You joined clan [{tag}]!")
+            await update.message.reply_text(f"✅ Clan [{tag}] join kar liya!")
         else:
-            await update.message.reply_text(f"❌ Clan [{tag}] not found or the clan is full.")
+            await update.message.reply_text(f"❌ Clan [{tag}] nahi mila ya full hai.")
 
     elif sub == "leave":
         success = pdb.leave_clan(user.id)
         if success:
-            await update.message.reply_text("👋 You left your clan.")
+            await update.message.reply_text("👋 Clan chhodh diya.")
         else:
-            await update.message.reply_text("❌ You're not in a clan.")
+            await update.message.reply_text("❌ Tum kisi clan mein nahi ho.")
 
     elif sub == "top":
         clans = pdb.get_clan_leaderboard(10)
         if not clans:
-            await update.message.reply_text("No clans yet! Create one with /clan create TAG NAME")
+            await update.message.reply_text("Koi clan nahi! /clan create TAG NAME se banao")
             return
         lines = ["🏆 <b>Top Clans</b>\n"]
         for i, c in enumerate(clans, 1):
             medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"#{i}")
             lines.append(
                 f"{medal} <b>{c['clan_name']}</b> [{c['clan_tag']}] "
-                f"— Lv.{c.get('level',1)} • "
-                f"{len(c.get('members',[]))}/{c.get('max_members',10)} members • "
-                f"{c.get('xp',0)} XP"
+                f"— Lv.{c.get('level', 1)} • "
+                f"{len(c.get('members', []))}/{c.get('max_members', 10)} members • "
+                f"{c.get('xp', 0)} XP"
             )
         await update.message.reply_text(
             "\n".join(lines), parse_mode=constants.ParseMode.HTML
@@ -1507,11 +1495,11 @@ async def cmd_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tag  = args[1].upper()
         clan = pdb.get_clan(tag)
         if not clan:
-            await update.message.reply_text(f"❌ Clan [{tag}] not found.")
+            await update.message.reply_text(f"❌ Clan [{tag}] nahi mila.")
             return
-        level = clan.get("level", 1)
-        xp = clan.get("xp", 0)
-        members = len(clan.get("members", []))
+        level       = clan.get("level", 1)
+        xp          = clan.get("xp", 0)
+        members     = len(clan.get("members", []))
         max_members = clan.get("max_members", 10)
 
         await update.message.reply_text(
@@ -1519,23 +1507,20 @@ async def cmd_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⭐ Level: {level}\n"
             f"👥 Members: {members}/{max_members}\n"
             f"🏆 XP: {xp}\n"
-            f"📅 Created: {clan['created_at'].strftime('%Y-%m-%d') if clan.get('created_at') else 'N/A'}",
+            f"📅 Bana: {clan['created_at'].strftime('%Y-%m-%d') if clan.get('created_at') else 'N/A'}",
             parse_mode=constants.ParseMode.HTML,
         )
+
     elif sub == "delete":
         if not pdb.delete_clan(user.id):
-            await update.message.reply_text(
-                "❌ You are not the owner of any clan."
-            )
+            await update.message.reply_text("❌ Aap kisi clan ke owner nahi hain.")
             return
+        await update.message.reply_text("🗑️ Clan delete ho gaya!")
 
-        await update.message.reply_text(
-            "🗑️ Clan deleted successfully!"
-        )
     else:
         await update.message.reply_text(
-            "Usage:\n"
-            "/clan — Your clan info\n"
+            "Commands:\n"
+            "/clan — Aapka clan info\n"
             "/clan create TAG NAME\n"
             "/clan join TAG\n"
             "/clan leave\n"
@@ -1549,22 +1534,20 @@ async def cmd_clan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_addriddle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not _is_sudo(user.id):
-        await update.message.reply_text("❌ Admin only.")
+        await update.message.reply_text("❌ Sirf admin.")
         return
 
     text = update.message.text
-    # Format: /addriddle question | answer | hint1 | hint2 | hint3 | category | difficulty | language
     parts = text.split("\n", 1)
     if len(parts) < 2:
         await update.message.reply_text(
-            "Usage (one field per line):\n"
+            "Usage (har field alag line mein):\n"
             "/addriddle\n"
             "Question: ...\n"
             "Answer: ...\n"
-            "Hints: hint1, hint2, hint3\n"
-            "Category: general/movies/sports/science/math/tech/history/philosophy\n"
+            "Options: opt1, opt2, opt3, opt4, opt5, opt6, opt7, opt8\n"
+            "Hints: hint1, hint2\n"
             "Difficulty: easy/medium/hard/legendary\n"
-            "Language: en/hi"
         )
         return
 
@@ -1577,37 +1560,40 @@ async def cmd_addriddle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         question   = lines["question"]
         answer     = lines["answer"]
+        options_raw = [o.strip() for o in lines.get("options", answer).split(",") if o.strip()]
+        if len(options_raw) < 2:
+            options_raw = [answer, "Doosra", "Teesra", "Chautha", "Paanchwa", "Chhata", "Saatwa", "Aathwa"]
+        # Ensure answer is in options
+        if answer not in options_raw:
+            options_raw[0] = answer
         hints      = [h.strip() for h in lines.get("hints", "").split(",") if h.strip()]
-        category   = lines.get("category", "general")
         difficulty = lines.get("difficulty", "easy")
-        language   = lines.get("language", "en")
 
-        # Get a unique ID
         max_id = max((r.get("id", 0) for r in _ALL_RIDDLES), default=0)
         new_id = max_id + 1
-
-        pts = {"easy": 10, "medium": 25, "hard": 50, "legendary": 100}.get(difficulty, 10)
+        pts    = {"easy": 10, "medium": 25, "hard": 50, "legendary": 100}.get(difficulty, 10)
 
         riddle = {
-            "id": new_id, "question": question, "answer": answer.lower(),
-            "hints": hints, "category": category, "difficulty": difficulty,
-            "language": language, "points": pts, "custom": True,
+            "id": new_id, "question": question, "answer": answer,
+            "options": options_raw[:8], "hints": hints,
+            "category": "desi", "difficulty": difficulty,
+            "language": "hi", "points": pts, "custom": True,
         }
         pdb.add_custom_riddle(riddle)
         _ALL_RIDDLES.append(riddle)
 
         await update.message.reply_text(
-            f"✅ Riddle #{new_id} added!\n"
+            f"✅ Paheli #{new_id} add ho gayi!\n"
             f"Q: {question}\nA: {answer}\nDifficulty: {difficulty}"
         )
     except KeyError as e:
-        await update.message.reply_text(f"❌ Missing field: {e}")
+        await update.message.reply_text(f"❌ Field missing: {e}")
 
 
 async def cmd_deleteriddle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not _is_sudo(user.id):
-        await update.message.reply_text("❌ Admin only.")
+        await update.message.reply_text("❌ Sirf admin.")
         return
 
     if not context.args:
@@ -1617,75 +1603,72 @@ async def cmd_deleteriddle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         rid = int(context.args[0])
     except ValueError:
-        await update.message.reply_text("❌ Riddle ID must be a number.")
+        await update.message.reply_text("❌ Riddle ID number hona chahiye.")
         return
 
     success = pdb.delete_custom_riddle(rid)
     if success:
         global _ALL_RIDDLES
         _ALL_RIDDLES = [r for r in _ALL_RIDDLES if r["id"] != rid]
-        await update.message.reply_text(f"✅ Riddle #{rid} deleted.")
+        await update.message.reply_text(f"✅ Paheli #{rid} delete ho gayi.")
     else:
-        await update.message.reply_text(f"❌ Riddle #{rid} not found (only custom riddles can be deleted).")
+        await update.message.reply_text(f"❌ Paheli #{rid} nahi mili (sirf custom delete hoti hain).")
 
 
 async def cmd_pban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not _is_sudo(user.id):
         return
-
     if not context.args:
         await update.message.reply_text("Usage: /pban <user_id> [reason]")
         return
-
     try:
         target_id = int(context.args[0])
     except ValueError:
         await update.message.reply_text("❌ Invalid user ID.")
         return
-
-    reason = " ".join(context.args[1:]) if len(context.args) > 1 else "No reason given"
+    reason = " ".join(context.args[1:]) if len(context.args) > 1 else "No reason"
     pdb.ban_user(target_id, reason=reason, banned_by=user.id)
-    await update.message.reply_text(f"🚫 User <code>{target_id}</code> banned from Paheli.\nReason: {reason}",
-                                    parse_mode=constants.ParseMode.HTML)
+    await update.message.reply_text(
+        f"🚫 User <code>{target_id}</code> ban ho gaya.\nReason: {reason}",
+        parse_mode=constants.ParseMode.HTML
+    )
 
 
 async def cmd_punban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not _is_sudo(user.id):
         return
-
     if not context.args:
         await update.message.reply_text("Usage: /punban <user_id>")
         return
-
     try:
         target_id = int(context.args[0])
     except ValueError:
         await update.message.reply_text("❌ Invalid user ID.")
         return
-
     pdb.unban_user(target_id)
-    await update.message.reply_text(f"✅ User <code>{target_id}</code> unbanned from Paheli.",
-                                    parse_mode=constants.ParseMode.HTML)
+    await update.message.reply_text(
+        f"✅ User <code>{target_id}</code> unban ho gaya.",
+        parse_mode=constants.ParseMode.HTML
+    )
 
 
 async def cmd_ridstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not _is_sudo(user.id):
         return
-
-    stats = pdb.get_global_paheli_stats()
+    stats        = pdb.get_global_paheli_stats()
     custom_count = len([r for r in _ALL_RIDDLES if r.get("custom")])
 
     await update.message.reply_text(
         "📊 <b>Paheli Admin Stats</b>\n\n"
-        f"🧩 Total Riddles: <b>{len(_ALL_RIDDLES)}</b>\n"
-        f"✍️ Custom Riddles: <b>{custom_count}</b>\n"
+        f"🧩 Total Paheliyan: <b>{len(_ALL_RIDDLES)}</b>\n"
+        f"✍️ Custom Paheliyan: <b>{custom_count}</b>\n"
         f"👥 Players: <b>{stats['total_players']}</b>\n"
         f"🎮 Sessions: <b>{stats['total_sessions']}</b>\n"
-        f"✅ Solved: <b>{stats['total_solved']}</b>\n"
-        f"⏭ Skipped: <b>{stats['total_skipped']}</b>\n"
+        f"✅ Solve Hui: <b>{stats['total_solved']}</b>\n"
+        f"⏭ Skip Hui: <b>{stats['total_skipped']}</b>\n"
         f"🏰 Clans: <b>{stats['total_clans']}</b>",
         parse_mode=constants.ParseMode.HTML,
     )
@@ -1696,30 +1679,33 @@ async def cmd_ridstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_paheli_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "━━━━━━━━━━━━━━━━━━\n"
-        "🧩 <b>Paheli — Riddle Game</b>\n"
+        "🧩 <b>Paheli — Desi Hinglish Paheliyan!</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        "<b>Gameplay:</b>\n"
-        "/paheli — Start a new riddle\n"
-        "/answer TEXT — Answer the riddle\n"
-        "/hint — Get a hint (uses token after 1st)\n"
-        "/skip — Skip riddle (uses Skip Token)\n\n"
-        "<b>Rewards:</b>\n"
-        "/daily — Claim daily reward\n"
-        "/weekly — Claim weekly reward\n\n"
-        "<b>Social:</b>\n"
-        "/challenge — PvP riddle challenge (reply to user)\n"
-        "/clan — Clan system\n\n"
-        "<b>Profile:</b>\n"
-        "/profile — Your profile & level\n"
-        "/inventory — Your items\n"
-        "/shop — Buy hints, skips & more\n"
-        "/stats — Your paheli stats\n"
-        "/settings — Language & difficulty\n"
-        "/leaderboard — Top players\n\n"
-        "<b>Points:</b>\n"
-        "🟢 Easy: 10 pts | 🟡 Medium: 25 pts\n"
-        "🔴 Hard: 50 pts | 💀 Legendary: 100 pts\n"
-        "No-hint bonus: +20% points!\n",
+        "<b>🎮 Khelne ka Tarika:</b>\n"
+        "/paheli — Nai paheli shuru karo\n"
+        "→ 8 buttons dikhenge, sahi wala dabao!\n"
+        "→ Galat dabane par sirf tumhe pata chalega\n"
+        "→ Pehle sahi button dabane wala jeet jaata hai!\n\n"
+        "<b>🔄 Difficulty Rotation:</b>\n"
+        "🟢 Saral → 🟡 Madhyam → 🔴 Kathin → 💀 Ati Kathin → repeat\n\n"
+        "<b>🏆 Commands:</b>\n"
+        "/paheli — Paheli shuru karo\n"
+        "/hint — Hint lo (tokens kharche honge)\n"
+        "/skip — Paheli skip karo (Skip Token chahiye)\n"
+        "/daily — Roz ka reward lo\n"
+        "/weekly — Hafte ka reward lo\n"
+        "/challenge — PvP challenge (reply karke)\n"
+        "/clan — Clan system\n"
+        "/profile — Apna profile\n"
+        "/inventory — Apna inventory\n"
+        "/shop — Items kharido\n"
+        "/paheli_stats — Stats dekho\n"
+        "/settings — Settings\n"
+        "/plb — Leaderboard\n\n"
+        "<b>⭐ Points:</b>\n"
+        "🟢 Saral: 10 pts | 🟡 Madhyam: 25 pts\n"
+        "🔴 Kathin: 50 pts | 💀 Ati Kathin: 100 pts\n"
+        "No-hint bonus: +30% points!\n",
         parse_mode=constants.ParseMode.HTML,
     )
 
@@ -1727,10 +1713,12 @@ async def cmd_paheli_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── Callback router ──────────────────────────────────────────────────────────
 
 async def cb_paheli_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query  = update.callback_query
-    data   = query.data
+    query = update.callback_query
+    data  = query.data
 
-    if data.startswith("ph:hint:"):
+    if data.startswith("ph:opt:"):
+        await cb_paheli_option(update, context)
+    elif data.startswith("ph:hint:"):
         await cb_paheli_hint(update, context)
     elif data.startswith("ph:skip:"):
         await cb_paheli_skip(update, context)
@@ -1760,41 +1748,36 @@ def register_paheli_handlers(app: Application):
     _load_riddles()
     pdb.init_paheli_db()
 
-    # Game selector (shared command)
+    # Game selector
     app.add_handler(CommandHandler("game", cmd_game))
     app.add_handler(CallbackQueryHandler(cb_game_selector, pattern=r"^game:"))
 
     # Paheli commands
-    app.add_handler(CommandHandler("paheli",         cmd_paheli))
-    app.add_handler(CommandHandler("answer",         cmd_answer))
-    app.add_handler(CommandHandler("hint",           cmd_paheli_hint))
-    app.add_handler(CommandHandler("skip",           cmd_paheli_skip))
-    app.add_handler(CommandHandler("daily",          cmd_daily))
-    app.add_handler(CommandHandler("weekly",         cmd_weekly))
-    app.add_handler(CommandHandler(["pleaderboard", "plb"],  cmd_paheli_lb))
-    app.add_handler(CommandHandler("profile",        cmd_profile))
-    app.add_handler(CommandHandler("inventory",      cmd_inventory))
-    app.add_handler(CommandHandler("shop",           cmd_shop))
-    app.add_handler(CommandHandler("paheli_stats",   cmd_paheli_stats))
-    app.add_handler(CommandHandler("settings",       cmd_settings))
-    app.add_handler(CommandHandler("challenge",      cmd_challenge))
-    app.add_handler(CommandHandler("clan",           cmd_clan))
-    app.add_handler(CommandHandler("paheli_help",    cmd_paheli_help))
+    app.add_handler(CommandHandler("paheli",        cmd_paheli))
+    app.add_handler(CommandHandler("hint",          cmd_paheli_hint))
+    app.add_handler(CommandHandler("skip",          cmd_paheli_skip))
+    app.add_handler(CommandHandler("daily",         cmd_daily))
+    app.add_handler(CommandHandler("weekly",        cmd_weekly))
+    app.add_handler(CommandHandler(["pleaderboard", "plb"], cmd_paheli_lb))
+    app.add_handler(CommandHandler("profile",       cmd_profile))
+    app.add_handler(CommandHandler("inventory",     cmd_inventory))
+    app.add_handler(CommandHandler("shop",          cmd_shop))
+    app.add_handler(CommandHandler("paheli_stats",  cmd_paheli_stats))
+    app.add_handler(CommandHandler("settings",      cmd_settings))
+    app.add_handler(CommandHandler("challenge",     cmd_challenge))
+    app.add_handler(CommandHandler("clan",          cmd_clan))
+    app.add_handler(CommandHandler("paheli_help",   cmd_paheli_help))
 
     # Admin commands
-    app.add_handler(CommandHandler("addriddle",      cmd_addriddle))
-    app.add_handler(CommandHandler("deleteriddle",   cmd_deleteriddle))
-    app.add_handler(CommandHandler("pban",           cmd_pban))
-    app.add_handler(CommandHandler("punban",         cmd_punban))
-    app.add_handler(CommandHandler("ridstats",       cmd_ridstats))
+    app.add_handler(CommandHandler("addriddle",     cmd_addriddle))
+    app.add_handler(CommandHandler("deleteriddle",  cmd_deleteriddle))
+    app.add_handler(CommandHandler("pban",          cmd_pban))
+    app.add_handler(CommandHandler("punban",        cmd_punban))
+    app.add_handler(CommandHandler("ridstats",      cmd_ridstats))
 
-    # Callback router for all ph: callbacks
+    # Callback router — handles all ph: callbacks (including MCQ options)
     app.add_handler(CallbackQueryHandler(cb_paheli_router, pattern=r"^ph:"))
 
-    # Message handler — answer detection (runs AFTER wordgrid handler, lower priority)
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
-        paheli_answer_handler,
-    ), group=1)  # group=1 so it runs AFTER the main message handler in group 0
+    # NOTE: Text-based answer handler removed — MCQ buttons handle everything now.
 
-    logger.info("✅ Paheli handlers registered")
+    logger.info("✅ Paheli handlers registered (MCQ mode, 400 desi paheliyan)")
