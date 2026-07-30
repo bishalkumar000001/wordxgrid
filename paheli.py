@@ -418,8 +418,43 @@ async def cb_paheli_option(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_right  = (chosen.strip().lower() == correct.strip().lower())
 
     if not is_right:
-        # Wrong answer — just notify this user, game continues
-        await query.answer(f"❌ Galat! '{chosen}' sahi nahi hai. Doosra try karo!", show_alert=True)
+
+        attempts, maximum = pdb.add_wrong_attempt(session_id)
+
+        remaining = maximum - attempts
+
+        if remaining > 0:
+            await query.answer(
+                f"❌ Galat!\n\n{remaining} chance left.",
+                show_alert=True
+            )
+            return
+
+        # Two wrong attempts finished
+        pdb.timeout_paheli(session_id)
+
+        _cancel_timeout(context, session_id)
+
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except TelegramError:
+            pass
+
+        await query.message.reply_text(
+            "❌ 2 wrong attempts completed!\n\n"
+            f"✅ Correct Answer: <b>{correct}</b>\n\n"
+            "🎮 Next Paheli...",
+            parse_mode=constants.ParseMode.HTML,
+        )
+
+        await _start_paheli_session(
+            update,
+            context,
+            chat_id=query.message.chat.id,
+            user=query.from_user,
+            from_callback=False,
+        )
+
         return
 
     # ── Correct answer ──────────────────────────────────────────────────────
