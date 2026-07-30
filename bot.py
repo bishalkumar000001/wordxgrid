@@ -62,17 +62,17 @@ def format_lb_row(rank: int, row: dict) -> str:
     words = row.get("words_found", 0)
 
     if rank == 1:
-        prefix = "🥇 #1"
+        prefix = "🥇"
     elif rank == 2:
-        prefix = "🥈 #2"
+        prefix = "🥈"
     elif rank == 3:
-        prefix = "🥉 #3"
+        prefix = "🥉"
     else:
-        prefix = f"🏅 #{rank}"
+        prefix = f"#{rank}"
 
     return (
         f"<blockquote><a href='tg://user?id={row['user_id']}'><b>{prefix} {html.escape(name)}</b></a></blockquote>\n"
-        f"⭐ <b>{pts}</b> pts • 🧩 <b>{words}</b> words"
+        f"✒ <b>{pts}</b> pts • 🧩 <b>{words}</b> words"
     )
 
 
