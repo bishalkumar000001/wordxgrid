@@ -397,18 +397,20 @@ def timeout_paheli(session_id: str) -> bool:
     )
     return result.modified_count > 0
 
+from pymongo import ReturnDocument
+
 def add_wrong_attempt(session_id: str):
     doc = _get_db().paheli_sessions.find_one_and_update(
         {"session_id": session_id},
         {"$inc": {"wrong_attempts": 1}},
-        return_document=True,
+        return_document=ReturnDocument.AFTER,   # <-- important
     )
 
     if not doc:
         return 0, 2
 
     return (
-        doc.get("wrong_attempts", 0) + 1,
+        doc.get("wrong_attempts", 0),
         doc.get("max_attempts", 2),
     )
 
