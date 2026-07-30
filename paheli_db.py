@@ -340,6 +340,8 @@ def create_paheli_session(session_id: str, riddle: dict, group_id: int,
         "skipped":      False,
         "solved":       False,
         "solver_id":    None,
+        "wrong_attempts": 0,
+        "max_attempts": 2,
         "mode":         mode,
         "active":       1,
         "started_at":   datetime.now(timezone.utc),
@@ -395,6 +397,20 @@ def timeout_paheli(session_id: str) -> bool:
     )
     return result.modified_count > 0
 
+def add_wrong_attempt(session_id: str):
+    doc = _get_db().paheli_sessions.find_one_and_update(
+        {"session_id": session_id},
+        {"$inc": {"wrong_attempts": 1}},
+        return_document=True,
+    )
+
+    if not doc:
+        return 0, 2
+
+    return (
+        doc.get("wrong_attempts", 0) + 1,
+        doc.get("max_attempts", 2),
+    )
 
 # ─── Scores ───────────────────────────────────────────────────────────────────
 
