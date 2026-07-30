@@ -72,7 +72,7 @@ def format_lb_row(rank: int, row: dict) -> str:
 
     return (
         f"<blockquote><a href='tg://user?id={row['user_id']}'><b>{prefix} {html.escape(name)}</b></a></blockquote>\n"
-        f"✒ <b>{pts}</b> pts • 🧩 <b>{words}</b> words"
+        f"► <b>{pts}</b> pts • 🧩 <b>{words}</b> words"
     )
 
 
