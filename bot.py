@@ -8,6 +8,7 @@ import threading
 import html
 
 from web import app as web_app
+from ludo_webapp_patch import patch_ludo_command
 
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
@@ -1259,6 +1260,7 @@ def main():
 
     # ── Ludo handlers ──────────────────────────────────────────────────────────
     register_ludo_handlers(app)
+    patch_ludo_command(app)
 
     app.add_error_handler(error_handler)
 
