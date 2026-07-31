@@ -30,6 +30,10 @@ from wordgrid import (
 # ── Import Paheli module ───────────────────────────────────────────────────────
 from paheli import register_paheli_handlers
 
+# ── Import Ludo module ─────────────────────────────────────────────────────────
+from ludo import register_ludo_handlers
+import ludo_db as ludo_db_mod
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -378,9 +382,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"👋 Hello <b>{user.first_name}</b>!\n\n"
             "🎮 I'm <b>VelocityBots</b>! Add me to a group and use:\n"
-            "• /game — Choose your game (Word Grid or Paheli)\n"
+            "• /game — Choose your game (Word Grid, Paheli or Ludo)\n"
             "• /new — Start a Word Grid game\n"
             "• /paheli — Start a riddle game\n"
+            "• /ludo — Start a Ludo game (2-4 players)\n"
             "• /help — All commands",
             parse_mode=constants.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(rows) if rows else None,
@@ -388,7 +393,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(
             "🎮 VelocityBots is ready!\n"
-            "Use /game to choose a game, or /new for Word Grid, /paheli for riddles.",
+            "Use /game to choose a game, /new for Word Grid, /paheli for riddles, or /ludo for Ludo!",
         )
 
 
@@ -401,7 +406,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎮 <b>VelocityBots — Commands</b>\n\n"
         "━ <b>Game Selector</b> ━\n"
-        "/game — Choose Word Grid or Paheli 🎮\n\n"
+        "/game — Choose Word Grid, Paheli or Ludo 🎮\n\n"
         "━ <b>Word Grid</b> ━\n"
         "/new — Start an easy game (10×10)\n"
         "/new_hard — Start a hard game (12×12)\n"
@@ -420,6 +425,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/settings — Language & difficulty\n"
         "/plb — Paheli leaderboard\n"
         "/paheli_help — Full paheli help\n\n"
+        "━ <b>🎲 Ludo</b> ━\n"
+        "/ludo — Create lobby / join existing game\n"
+        "/lend — End ludo game (admins only)\n"
+        "/lstats — Your ludo stats\n\n"
         "📌 Grid is pinned when game starts.\n"
         "🎨 Found words get strikethrough!\n"
         "⏰ Timer resets on every correct guess.\n",
@@ -1214,6 +1223,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     db.init_db()
+    ludo_db_mod.init_ludo_indexes()
 
     app = (
         Application.builder()
@@ -1247,9 +1257,12 @@ def main():
     # ── Paheli handlers (group=1 for message handler, won't conflict) ─────────
     register_paheli_handlers(app)
 
+    # ── Ludo handlers ──────────────────────────────────────────────────────────
+    register_ludo_handlers(app
+
     app.add_error_handler(error_handler)
 
-    logger.info("VelocityBots starting… (WordGrid + Paheli)")
+    logger.info("VelocityBots starting… (WordGrid + Paheli + Ludo)")
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
