@@ -12,7 +12,7 @@ from flask import Blueprint, render_template, request, jsonify
 import ludo_auth as auth
 import ludo_engine as engine
 import ludo_rooms_db as rdb
-from flask_socketio import leave_room
+from flask_socketio import SocketIO, emit, join_room, leave_room
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ def register_socketio_events(socketio):
             room_id = existing_room["room_id"]
             _sessions[sid]["room_id"] = room_id
             rdb.set_player_connected(room_id, user_id, True)
-            join_room(sid, room_id)
+            join_room(room_id, sid=sid)
             _sio.emit("authenticated", {
                 "user": user,
                 "reconnected_room": _room_payload(existing_room),
@@ -203,7 +203,7 @@ def register_socketio_events(socketio):
         if not room or room["status"] == "playing":
             # Disconnect but keep in game state
             rdb.set_player_connected(room_id, user["id"], False)
-            leave_room(sid, room_id)
+            leave_room(room_id, sid=sid)
             _sessions[sid]["room_id"] = None
             _sio.emit("room_update", _room_payload(rdb.get_room(room_id)), room=room_id)
             return
