@@ -1,7 +1,7 @@
 {
   "name": "Word Grid Challenge Bot",
-  "description": "Telegram Word Grid Challenge game bot with leaderboards",
-  "keywords": ["telegram", "bot", "game", "python"],
+  "description": "Telegram Word Grid Challenge game bot with leaderboards and Ludo Mini App",
+  "keywords": ["telegram", "bot", "game", "python", "ludo"],
   "website": "",
   "repository": "",
   "stack": "heroku-24",
@@ -11,6 +11,10 @@
   "env": {
     "BOT_TOKEN": {
       "description": "Your Telegram Bot Token from @BotFather",
+      "required": true
+    },
+    "MONGO_URL": {
+      "description": "MongoDB connection string",
       "required": true
     },
     "OWNER_ID": {
@@ -27,9 +31,28 @@
       "description": "Your support channel link e.g. https://t.me/yourchannel",
       "required": false,
       "value": ""
+    },
+    "LUDO_WEB_APP_URL": {
+      "description": "Public HTTPS URL of the Ludo Mini App (e.g. https://yourapp.onrender.com/ludo)",
+      "required": false,
+      "value": ""
+    },
+    "WEBAPP_SECRET_KEY": {
+      "description": "Flask secret key for session signing (random string)",
+      "required": false,
+      "value": ""
+    },
+    "LUDO_TURN_TIMEOUT": {
+      "description": "Turn timeout in seconds (default: 60)",
+      "required": false,
+      "value": "60"
     }
   },
   "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "eco"
+    },
     "worker": {
       "quantity": 1,
       "size": "eco"
@@ -39,9 +62,8 @@
   "environments": {
     "test": {
       "formation": {
-        "worker": {
-          "quantity": 0
-        }
+        "web": { "quantity": 0 },
+        "worker": { "quantity": 0 }
       }
     }
   }
