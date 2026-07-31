@@ -370,7 +370,7 @@ async def cmd_ludo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ── Create new lobby ──────────────────────────────────────────────────────
-    game_id = str(uuid.uuid4())
+    game_id = uuid.uuid4().hex[:8]
     ldb.create_ludo_game(game_id, chat.id, user.id, _display_name(user))
     game = ldb.get_ludo_game(game_id)
 
