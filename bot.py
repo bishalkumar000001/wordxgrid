@@ -1258,7 +1258,7 @@ def main():
     register_paheli_handlers(app)
 
     # ── Ludo handlers ──────────────────────────────────────────────────────────
-    register_ludo_handlers(app
+    register_ludo_handlers(app)
 
     app.add_error_handler(error_handler)
 
