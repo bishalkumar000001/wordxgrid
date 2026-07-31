@@ -63,7 +63,7 @@ async def cmd_ludo_webapp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
             "🎲 Ludo King khelo!",
-            url=LUDO_WEB_APP_URL,
+            web_app=WebAppInfo(url=LUDO_WEB_APP_URL),
         )
     ]])
 
