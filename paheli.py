@@ -206,7 +206,7 @@ def _options_keyboard(session_id: str, riddle: dict, hints_used: int, disabled: 
 # ─── /game — Game selector ─────────────────────────────────────────────────────
 
 async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Shows the game picker with WordGrid and Paheli buttons."""
+    """Shows the game picker with WordGrid, Paheli and Ludo buttons."""
     chat = update.effective_chat
 
     keyboard = InlineKeyboardMarkup([
@@ -215,7 +215,11 @@ async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                  callback_data=f"game:wordgrid:{chat.id}"),
             InlineKeyboardButton("🧩 Paheli (Paheliyan)",
                                  callback_data=f"game:paheli:{chat.id}"),
-        ]
+        ],
+        [
+            InlineKeyboardButton("🎲 Ludo (2-4 Players)",
+                                 callback_data=f"game:ludo:{chat.id}"),
+        ],
     ])
 
     await update.message.reply_text(
@@ -224,7 +228,8 @@ async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━━━━\n\n"
         "Apna game chunlo aur maza karo!\n\n"
         "🔤 <b>Word Grid</b> — Letter grid mein chhupe shabd dhoondhon\n"
-        "🧩 <b>Paheli</b> — Desi Hinglish paheliyan bujho!\n",
+        "🧩 <b>Paheli</b> — Desi Hinglish paheliyan bujho!\n"
+        "🎲 <b>Ludo</b> — 2-4 players ka classic Ludo! 🏆\n",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=keyboard,
     )
@@ -256,6 +261,16 @@ async def cb_game_selector(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _start_paheli_session(update, context, chat_id=chat_id,
                                     user=user, from_callback=True,
                                     reply_to=query.message)
+    elif game_type == "ludo":
+        if chat.type == "private":
+            await query.answer("⚠️ Ludo sirf groups mein khelo!", show_alert=True)
+            return
+        await query.message.reply_text(
+            "🎲 Ludo shuru karo!\n\n"
+            "• /ludo — Lobby banao ya join karo (2-4 players)\n"
+            "• Lobby mein 2+ players hone ke baad game start hoga!\n\n"
+            "Sabse pehle /ludo type karo. 🏆"
+        )
 
 
 # ─── /paheli ──────────────────────────────────────────────────────────────────
