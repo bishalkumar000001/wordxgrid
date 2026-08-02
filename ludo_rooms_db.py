@@ -254,7 +254,15 @@ def find_player_room(user_id: int) -> Optional[dict]:
 
 def update_player_pieces(room_id: str, color: str, pieces: list):
     """Update piece positions for a player by color in the embedded game_state."""
+    room = get_room(room_id)
+    if not room or not room.get("game_state"):
+        return
+    gs = room["game_state"]
+    for player in gs.get("players", []):
+        if player["color"] == color:
+            player["pieces"] = pieces
+            break
     _get_db().ludo_webapp_rooms.update_one(
         {"room_id": room_id},
-        {"$set": {"game_state": _get_db().ludo_webapp_rooms.find_one({"room_id": room_id}, {"game_state": 1}).get("game_state", {})}}
+        {"$set": {"game_state": gs}}
     )

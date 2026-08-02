@@ -253,18 +253,19 @@ def get_final_rankings(game_state: dict) -> list:
 
 def apply_three_sixes_penalty(game_state: dict, player_idx: int) -> dict:
     """
-    If a player rolls three consecutive sixes, send their last-moved piece
-    back to home base. Resets consecutive_sixes counter.
+    If a player rolls three consecutive sixes, send their furthest-advanced piece
+    back to home base. Considers both main ring (0-51) and home column (52-57).
+    Resets consecutive_sixes counter.
     """
     state = copy.deepcopy(game_state)
-    # Move furthest-advanced piece back to home
     player = state["players"][player_idx]
     pieces = player["pieces"]
-    # Find the piece that is furthest along (highest relative position on ring)
+    # Find the piece that is furthest along (any on-board piece, i.e. pos 0–57)
+    # pos == 58 (finished) cannot be sent back
     best_idx = -1
     best_pos = -2
     for i, pos in enumerate(pieces):
-        if 0 <= pos < 52 and pos > best_pos:
+        if 0 <= pos < 58 and pos > best_pos:
             best_pos = pos
             best_idx = i
     if best_idx >= 0:

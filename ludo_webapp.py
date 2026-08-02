@@ -110,9 +110,16 @@ def register_socketio_events(socketio):
             _sessions[sid]["room_id"] = room_id
             rdb.set_player_connected(room_id, user_id, True)
             join_room(room_id, sid=sid)
+            # Use full game payload (includes game_state) so frontend can restore
+            # the board when reconnecting to an in-progress game
+            reconnect_payload = (
+                _game_payload(existing_room)
+                if existing_room.get("status") == "playing"
+                else _room_payload(existing_room)
+            )
             _sio.emit("authenticated", {
                 "user": user,
-                "reconnected_room": _room_payload(existing_room),
+                "reconnected_room": reconnect_payload,
             }, room=sid)
             _sio.emit("room_update", _room_payload(rdb.get_room(room_id)), room=room_id)
         else:
@@ -379,8 +386,8 @@ def register_socketio_events(socketio):
         valid_moves = engine.get_valid_moves(current_player, dice)
 
         if not valid_moves:
-            # No moves available — advance turn
-            gs["consecutive_sixes"] = 0 if dice != 6 else consecutive
+            # No moves available — advance turn; always reset consecutive_sixes
+            gs["consecutive_sixes"] = 0
             rdb.update_game_state(room_id, gs)
             _sio.emit("dice_rolled", {
                 "player_idx":  current_idx,
@@ -447,8 +454,8 @@ def register_socketio_events(socketio):
         # Check game over
         game_over = engine.is_game_over(new_gs)
 
-        # Extra turn on 6 or capture (unless 3 sixes)
-        got_extra = (dice == 6 or len(captures) > 0) and new_gs.get("consecutive_sixes", 0) < 3
+        # Extra turn on 6, capture, or piece finishing (unless 3 sixes)
+        got_extra = (dice == 6 or len(captures) > 0 or piece_finished) and new_gs.get("consecutive_sixes", 0) < 3
 
         rdb.update_game_state(room_id, new_gs)
 
@@ -535,8 +542,8 @@ def _advance_turn(room_id: str, from_idx: int, dice: int, got_extra: bool):
     gs["current_player_idx"] = next_idx
     gs["dice_rolled"] = False
     gs["dice_value"] = None
-    if dice != 6:
-        gs["consecutive_sixes"] = 0
+    # Always reset consecutive_sixes when passing to another player
+    gs["consecutive_sixes"] = 0
 
     rdb.update_game_state(room_id, gs)
     _sio.emit("turn_changed", {
