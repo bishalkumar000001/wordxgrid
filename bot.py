@@ -55,13 +55,8 @@ def is_sudo(user_id: int) -> bool:
 
 
 def format_lb_row(rank: int, row: dict) -> str:
-    name = row.get("first_name") or ""
-
-    if row.get("last_name"):
-        name += " " + row["last_name"]
-
+    name = row.get("first_name") or row.get("username") or ""
     name = name.strip() or f"User{row['user_id']}"
-
     pts = row.get("total_points", 0)
 
     if rank == 1:
