@@ -55,8 +55,8 @@ def _preferred_pool(length: int, top_n: int = 500) -> list[str]:
     frequency. This produces easier / more guessable words (common letters
     and varied letters) for daily or default play.
     """
-    # Prefer an "easier" pool for common 5-letter daily games
-    if length == 5:
+    # Prefer an "easier" pool for common daily games (5- and 6-letter)
+    if length in (5, 6):
         pool = _preferred_pool(length)
     else:
         pool = list(VALID_WORDS.get(length, set()))
