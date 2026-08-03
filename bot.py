@@ -1045,12 +1045,22 @@ async def cmd_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         lines.append("No words were found.")
 
-    await update.message.reply_text(
-        "\n".join(lines),
-        parse_mode=constants.ParseMode.HTML,
-        reply_markup=play_again_keyboard(chat.id),
-        quote=False,
-    )
+    try:
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text="\n".join(lines),
+            parse_mode=constants.ParseMode.HTML,
+            reply_markup=play_again_keyboard(chat.id),
+            reply_to_message_id=None,
+        )
+    except TelegramError as e:
+        logger.warning("Could not send end-game message: %s", e)
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text="\n".join(lines),
+            parse_mode=constants.ParseMode.HTML,
+            reply_markup=play_again_keyboard(chat.id),
+        )
     await log_to_group(
         context.application,
         f"🛑 Game ended in <b>{chat.title}</b> (<code>{chat.id}</code>)\n"
