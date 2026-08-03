@@ -356,7 +356,7 @@ async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"🔤 The word was: <b>{target}</b>"
         )
 
-    sent_status = await update.message.bot.send_message(
+    sent_status = await context.bot.send_message(
         chat.id,
         status_text,
         parse_mode=constants.ParseMode.HTML,
