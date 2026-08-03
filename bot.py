@@ -882,7 +882,7 @@ async def _send_leaderboard(
     else:
         # Top 10 header
         lines = [
-            "🏆 <b>WORDGRID LEADERBOARD</b>",
+            "❝ <b>Bingo — Leaderboard</b> ❞",
             f"{scope_label} | {period_label}",
             "",
         ]
