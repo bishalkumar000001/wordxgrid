@@ -63,7 +63,6 @@ def format_lb_row(rank: int, row: dict) -> str:
     name = name.strip() or f"User{row['user_id']}"
 
     pts = row.get("total_points", 0)
-    words = row.get("words_found", 0)
 
     if rank == 1:
         prefix = "🥇"
@@ -74,10 +73,7 @@ def format_lb_row(rank: int, row: dict) -> str:
     else:
         prefix = f"#{rank}"
 
-    return (
-        f"<blockquote><a href='tg://user?id={row['user_id']}'><b>{prefix} {html.escape(name)}</b></a></blockquote>\n"
-        f"► <b>{pts}</b> pts • 🧩 <b>{words}</b> words"
-    )
+    return f"<a href='tg://user?id={row['user_id']}'><b>{prefix} {html.escape(name)}</b></a> — <b>{pts}</b> pts"
 
 
 def grid_message_link(chat_id: int, message_id: int) -> str:
@@ -889,7 +885,7 @@ async def _send_leaderboard(
         # Top 10 header
         lines = [
             "🏆 <b>WORDGRID LEADERBOARD</b>",
-            f"🌍 {scope_label} • {period_label}",
+            f"{scope_label} | {period_label}",
             "",
         ]
 
