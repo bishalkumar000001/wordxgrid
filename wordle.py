@@ -24,9 +24,10 @@ import html
 import logging
 import random
 
-from telegram import Update, constants
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
     ContextTypes,
@@ -251,6 +252,23 @@ async def cmd_new6(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _start_wordle(update, context, length=6)
 
 
+async def cb_new_wordle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query:
+        return
+
+    await query.answer()
+    data = query.data
+    length = 5 if data == "new5" else 6
+    chat = query.message.chat
+
+    if chat.type not in ("group", "supergroup"):
+        await query.message.reply_text("⚠️ Wordle can only be played in groups.")
+        return
+
+    await _do_start_wordle(context.bot, chat, length)
+
+
 async def cmd_wend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -406,10 +424,18 @@ async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"🔤 The word was: <b>{target}</b>"
         )
 
+    keyboard = None
+    if correct or remaining <= 0:
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🟩 New 5-letter", callback_data="new5"),
+            InlineKeyboardButton("🟦 New 6-letter", callback_data="new6"),
+        ]])
+
     sent_status = await context.bot.send_message(
         chat.id,
         status_text,
         parse_mode=constants.ParseMode.HTML,
+        reply_markup=keyboard,
     )
     wordle_db.update_wordle_status_message(
         updated_game["game_id"], sent_status.message_id
@@ -425,6 +451,7 @@ def register_wordle_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("wend",   cmd_wend))
     app.add_handler(CommandHandler("wlb",    cmd_wlb))
     app.add_handler(CommandHandler("wstats", cmd_wstats))
+    app.add_handler(CallbackQueryHandler(cb_new_wordle, pattern=r"^new[56]$"))
 
     # group=2 → runs after WordGrid (0) and Paheli (1)
     app.add_handler(
