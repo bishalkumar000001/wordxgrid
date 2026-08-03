@@ -975,17 +975,17 @@ async def cmd_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     if chat.type == "private":
-        await update.message.reply_text("⚠️ Groups only.")
+        await update.message.reply_text("⚠️ Groups only.", quote=False)
         return
 
     member = await context.bot.get_chat_member(chat.id, user.id)
     if member.status not in ("administrator", "creator"):
-        await update.message.reply_text("❌ Only group admins can end the game.")
+        await update.message.reply_text("❌ Only group admins can end the game.", quote=False)
         return
 
     game = db.get_active_game(chat.id)
     if not game:
-        await update.message.reply_text("❌ No active game.")
+        await update.message.reply_text("❌ No active game.", quote=False)
         return
 
     words     = [w for w in game["words"].split(",") if w]
@@ -1049,6 +1049,7 @@ async def cmd_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "\n".join(lines),
         parse_mode=constants.ParseMode.HTML,
         reply_markup=play_again_keyboard(chat.id),
+        quote=False,
     )
     await log_to_group(
         context.application,
