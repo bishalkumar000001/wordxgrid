@@ -308,6 +308,15 @@ async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
+    # Ignore repeated guesses within the same game
+    previous = {entry["guess"] for entry in game.get("guesses", [])}
+    if text in previous:
+        await update.message.reply_text(
+            "⚠️ You already guessed that word. Try a different word.",
+            parse_mode=constants.ParseMode.HTML,
+        )
+        return
+
     # Atomically record the guess and get the updated game doc
     updated_game = wordle_db.record_guess(
         game["game_id"], user.id, _display_name(user), text
