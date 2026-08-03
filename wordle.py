@@ -106,29 +106,17 @@ def _format_guess_line(guess: str, target: str) -> str:
         else:
             marks[i] = "🟥"
 
-    styled = [_unicode_bold_upper(c) for c in guess]
-    return "".join(f"{m}{c}" for m, c in zip(marks, styled))
+    return "".join(f"{m}{c}" for m, c in zip(marks, guess))
 
 
 def _build_wordle_status(game: dict) -> str:
     guesses = game.get("guesses", [])
     word = game.get("word", "")
     length = game.get("length", len(word))
-    points = game.get("points")
-    title = f"🟩 <b>WORDLE — {length}-Letter Mode</b>"
-    lines = [title, "━━━━━━━━━━━━━━━━━━"]
+    lines = [f"{length}-letter mode · {len(guesses)}/{MAX_ATTEMPTS}", ""]
 
-    if not guesses:
-        lines.append(f"Guess the hidden <b>{length}</b>-letter word.")
-        lines.append("Type your guess in uppercase or lowercase; results will display in CAPITAL.")
-    else:
-        for entry in guesses:
-            lines.append(_format_guess_line(entry["guess"], word))
-
-    lines.append("")
-    attempt_count = f"Attempt: <b>{len(guesses)}/{MAX_ATTEMPTS}</b>"
-    lines.append(attempt_count)
-    lines.append("🔤 Letters are case-insensitive and always shown in CAPITAL.")
+    for entry in guesses:
+        lines.append(_format_guess_line(entry["guess"], word) + f" {entry['guess'].upper()}")
 
     return "\n".join(lines)
 
@@ -368,20 +356,14 @@ async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"🔤 The word was: <b>{target}</b>"
         )
 
-    if status_msg_id:
-        try:
-            await update.message.bot.edit_message_text(
-                chat_id=chat.id,
-                message_id=status_msg_id,
-                text=status_text,
-                parse_mode=constants.ParseMode.HTML,
-            )
-        except Exception as e:
-            logger.warning("Could not edit Wordle status message: %s", e)
-
-    if not correct and remaining > 0:
-        # Keep guesses consolidated in the status message only.
-        return
+    sent_status = await update.message.bot.send_message(
+        chat.id,
+        status_text,
+        parse_mode=constants.ParseMode.HTML,
+    )
+    wordle_db.update_wordle_status_message(
+        updated_game["game_id"], sent_status.message_id
+    )
 
 
 # ─── Registration ──────────────────────────────────────────────────────────────
