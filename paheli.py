@@ -267,14 +267,9 @@ async def cb_game_selector(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if chat.type == "private":
             await query.answer("⚠️ Wordle sirf groups mein khelo!", show_alert=True)
             return
+        from wordle import _do_start_wordle
         length = 6 if game_type == "wordle6" else 5
-        await query.message.reply_text(
-            f"🟩 Wordle shuru karo!\n\n"
-            f"• /{('new6' if length == 6 else 'new5')} — {length}-letter Wordle start karo\n"
-            f"• 30 attempts mein hidden word dhoomdho!\n"
-            f"• ✅ sahi jagah, 🟡 galat jagah, ❌ word mein nahi\n\n"
-            f"Ab /{('new6' if length == 6 else 'wordle')} type karo. 🏆"
-        )
+        await _do_start_wordle(context.bot, chat, length)
 
 
 # ─── /paheli ──────────────────────────────────────────────────────────────────
