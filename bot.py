@@ -57,8 +57,8 @@ def is_sudo(user_id: int) -> bool:
 def format_lb_row(rank: int, row: dict) -> str:
     name = row.get("first_name") or row.get("username") or ""
     name = name.strip() or f"User{row['user_id']}"
-    if len(name) > 10:
-        name = name[:8] + "…"
+    if len(name) > 20:
+        name = name[:19] + "…"
 
     pts = row.get("total_points", 0)
 
@@ -69,7 +69,7 @@ def format_lb_row(rank: int, row: dict) -> str:
     elif rank == 3:
         prefix = "🥉"
     else:
-        prefix = f"#{rank}"
+        prefix = f"{rank}."
 
     return f"<a href='tg://user?id={row['user_id']}'><b>{prefix} {html.escape(name)}</b></a> {pts}pts"
 
@@ -882,7 +882,7 @@ async def _send_leaderboard(
     else:
         # Top 10 header
         lines = [
-            "❝ <b>Bingo — Leaderboard</b> ❞",
+            "❝ <b>WordGrid — Leaderboard</b> ❞",
             f"{scope_label} | {period_label}",
             "",
         ]
