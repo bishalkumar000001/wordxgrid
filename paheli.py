@@ -206,7 +206,7 @@ def _options_keyboard(session_id: str, riddle: dict, hints_used: int, disabled: 
 # ─── /game — Game selector ─────────────────────────────────────────────────────
 
 async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Shows the game picker with WordGrid, Paheli and Ludo buttons."""
+    """Shows the game picker with WordGrid, Paheli and Wordle buttons."""
     chat = update.effective_chat
 
     keyboard = InlineKeyboardMarkup([
@@ -217,8 +217,10 @@ async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                  callback_data=f"game:paheli:{chat.id}"),
         ],
         [
-            InlineKeyboardButton("🎲 Ludo (2-4 Players)",
-                                 callback_data=f"game:ludo:{chat.id}"),
+            InlineKeyboardButton("🟩 Wordle (5-letter)",
+                                 callback_data=f"game:wordle:{chat.id}"),
+            InlineKeyboardButton("🟦 Wordle (6-letter)",
+                                 callback_data=f"game:wordle6:{chat.id}"),
         ],
     ])
 
@@ -229,7 +231,7 @@ async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Apna game chunlo aur maza karo!\n\n"
         "🔤 <b>Word Grid</b> — Letter grid mein chhupe shabd dhoondhon\n"
         "🧩 <b>Paheli</b> — Desi Hinglish paheliyan bujho!\n"
-        "🎲 <b>Ludo</b> — 2-4 players ka classic Ludo! 🏆\n",
+        "🟩 <b>Wordle</b> — 30 chances mein hidden word dhoomdho! 🏆\n",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=keyboard,
     )
@@ -261,15 +263,17 @@ async def cb_game_selector(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _start_paheli_session(update, context, chat_id=chat_id,
                                     user=user, from_callback=True,
                                     reply_to=query.message)
-    elif game_type == "ludo":
+    elif game_type in ("wordle", "wordle6"):
         if chat.type == "private":
-            await query.answer("⚠️ Ludo sirf groups mein khelo!", show_alert=True)
+            await query.answer("⚠️ Wordle sirf groups mein khelo!", show_alert=True)
             return
+        length = 6 if game_type == "wordle6" else 5
         await query.message.reply_text(
-            "🎲 Ludo shuru karo!\n\n"
-            "• /ludo — Lobby banao ya join karo (2-4 players)\n"
-            "• Lobby mein 2+ players hone ke baad game start hoga!\n\n"
-            "Sabse pehle /ludo type karo. 🏆"
+            f"🟩 Wordle shuru karo!\n\n"
+            f"• /{('new6' if length == 6 else 'new5')} — {length}-letter Wordle start karo\n"
+            f"• 30 attempts mein hidden word dhoomdho!\n"
+            f"• ✅ sahi jagah, 🟡 galat jagah, ❌ word mein nahi\n\n"
+            f"Ab /{('new6' if length == 6 else 'wordle')} type karo. 🏆"
         )
 
 

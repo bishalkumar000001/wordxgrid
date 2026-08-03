@@ -1,0 +1,314 @@
+"""
+wordle.py — Wordle-style group game for Telegram.
+
+Commands:
+  /wordle or /new5  — Start a 5-letter Wordle game
+  /new6             — Start a 6-letter Wordle game
+  /wend             — End the current Wordle game (admins only)
+  /wlb              — Wordle leaderboard for this group
+  /wstats           — Your Wordle stats
+
+Feedback per letter:
+  ✅  right letter, right position
+  🟡  right letter, wrong position
+  ❌  letter not in the word
+
+Points: 30 for 1st-attempt solve, 29 for 2nd, …, 1 minimum.
+No hints. 30 attempts total per game (shared across all players).
+"""
+
+import uuid
+import html
+import logging
+import random
+
+from telegram import Update, constants
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+
+import config
+import wordle_db
+from words import WORDS_BY_LENGTH
+
+logger = logging.getLogger(__name__)
+
+MAX_ATTEMPTS = 30
+
+# Pre-build valid-word sets (uppercase) for fast O(1) lookup
+VALID_WORDS: dict[int, set[str]] = {
+    length: {w.upper() for w in words}
+    for length, words in WORDS_BY_LENGTH.items()
+}
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def _feedback(guess: str, target: str) -> str:
+    """
+    Return emoji-per-letter feedback string.
+    Example: ✅m🟡o❌n✅e❌y
+    """
+    guess  = guess.upper()
+    target = target.upper()
+
+    marks        = [""] * len(guess)
+    target_chars = list(target)
+
+    # Pass 1 — exact matches (green ✅)
+    for i, (g, t) in enumerate(zip(guess, target_chars)):
+        if g == t:
+            marks[i]        = "✅"
+            target_chars[i] = None          # consumed
+
+    # Pass 2 — misplaced letters (yellow 🟡) and absent (red ❌)
+    for i, g in enumerate(guess):
+        if marks[i]:
+            continue
+        if g in target_chars:
+            marks[i] = "🟡"
+            target_chars[target_chars.index(g)] = None
+        else:
+            marks[i] = "❌"
+
+    # Combine: emoji + lowercase letter
+    return "".join(f"{m}{c.lower()}" for m, c in zip(marks, guess))
+
+
+def _display_name(user) -> str:
+    name = (user.first_name or "").strip()
+    if user.last_name:
+        name = f"{name} {user.last_name}".strip()
+    return name or f"User{user.id}"
+
+
+def _user_link(user) -> str:
+    return f"<a href='tg://user?id={user.id}'>{html.escape(_display_name(user))}</a>"
+
+
+def _is_admin(member) -> bool:
+    return member.status in ("administrator", "creator")
+
+
+# ─── Command handlers ─────────────────────────────────────────────────────────
+
+async def _start_wordle(update: Update, context: ContextTypes.DEFAULT_TYPE, length: int):
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if chat.type not in ("group", "supergroup"):
+        await update.message.reply_text("⚠️ Wordle can only be played in groups.")
+        return
+
+    existing = wordle_db.get_active_wordle(chat.id)
+    if existing:
+        used      = existing["attempts"]
+        remaining = MAX_ATTEMPTS - used
+        await update.message.reply_text(
+            f"⚠️ A Wordle game is already running!\n\n"
+            f"🔤 Word length: <b>{existing['length']} letters</b>\n"
+            f"🎯 Attempts used: <b>{used}/{MAX_ATTEMPTS}</b> — <b>{remaining}</b> remaining\n\n"
+            f"Type your <b>{existing['length']}-letter</b> guess in the chat!",
+            parse_mode=constants.ParseMode.HTML,
+        )
+        return
+
+    pool = list(VALID_WORDS.get(length, set()))
+    if not pool:
+        await update.message.reply_text(f"❌ No {length}-letter words available.")
+        return
+
+    word    = random.choice(pool)
+    game_id = str(uuid.uuid4())
+    wordle_db.create_wordle_game(game_id, chat.id, word, length)
+
+    await update.message.reply_text(
+        f"🟩 <b>WORDLE — {length}-Letter Word</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"Guess the hidden <b>{length}-letter</b> word!\n\n"
+        f"✅ = right letter, right place\n"
+        f"🟡 = right letter, wrong place\n"
+        f"❌ = letter not in the word\n\n"
+        f"⚡ <b>{MAX_ATTEMPTS} attempts</b> shared among all players.\n"
+        f"🏆 Points: <b>30</b> (1st guess) → <b>29</b> (2nd) → … → <b>1</b> minimum\n"
+        f"🚫 No hints!\n\n"
+        f"📝 Type your {length}-letter guess now!",
+        parse_mode=constants.ParseMode.HTML,
+    )
+
+
+async def cmd_wordle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _start_wordle(update, context, length=5)
+
+
+async def cmd_new5(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _start_wordle(update, context, length=5)
+
+
+async def cmd_new6(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _start_wordle(update, context, length=6)
+
+
+async def cmd_wend(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if chat.type not in ("group", "supergroup"):
+        return
+
+    member = await chat.get_member(user.id)
+    if not _is_admin(member) and user.id not in config.SUDO_USERS:
+        await update.message.reply_text("⚠️ Only admins can end the Wordle game.")
+        return
+
+    game = wordle_db.get_active_wordle(chat.id)
+    if not game:
+        await update.message.reply_text("No active Wordle game in this group.")
+        return
+
+    wordle_db.end_wordle_game(game["game_id"])
+    await update.message.reply_text(
+        f"🔴 Wordle game ended by {_user_link(user)}.\n"
+        f"The word was: <b>{game['word']}</b>",
+        parse_mode=constants.ParseMode.HTML,
+    )
+
+
+async def cmd_wlb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    scope_id = chat.id if chat.type in ("group", "supergroup") else None
+    rows     = wordle_db.get_wordle_leaderboard(group_id=scope_id, limit=10)
+
+    if not rows:
+        await update.message.reply_text("No Wordle scores yet in this chat!")
+        return
+
+    scope_label = "📍 This Chat" if scope_id else "🌍 Global"
+    lines = [f"🏆 <b>Wordle Leaderboard — {scope_label}</b>\n"]
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    for i, row in enumerate(rows, 1):
+        name = row.get("first_name") or f"User{row['_id']}"
+        pts  = row.get("total_points", 0)
+        won  = row.get("games_won", 0)
+        rank = medals.get(i, f"#{i}")
+        lines.append(f"{rank} <b>{html.escape(name)}</b> — {pts} pts ({won} wins)")
+
+    await update.message.reply_text(
+        "\n".join(lines),
+        parse_mode=constants.ParseMode.HTML,
+    )
+
+
+async def cmd_wstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user  = update.effective_user
+    stats = wordle_db.get_wordle_stats(user.id)
+    await update.message.reply_text(
+        f"📊 <b>Your Wordle Stats</b>\n\n"
+        f"🏆 Total Points: <b>{stats.get('total_points', 0)}</b>\n"
+        f"🎯 Games Won:    <b>{stats.get('games_won', 0)}</b>",
+        parse_mode=constants.ParseMode.HTML,
+    )
+
+
+# ─── Message handler ──────────────────────────────────────────────────────────
+
+async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+    text = (update.message.text or "").strip().upper()
+
+    # Only handle in groups
+    if chat.type not in ("group", "supergroup"):
+        return
+
+    # Is there an active wordle game?
+    game = wordle_db.get_active_wordle(chat.id)
+    if not game:
+        return
+
+    length = game["length"]
+
+    # Guess must be exactly the right length and all alphabetic
+    if len(text) != length or not text.isalpha():
+        return
+
+    # Validate against word list
+    if text not in VALID_WORDS.get(length, set()):
+        await update.message.reply_text(
+            f"❌ <b>{text.lower()}</b> — word doesn't exist!",
+            parse_mode=constants.ParseMode.HTML,
+        )
+        return
+
+    # Atomically record the guess and get the updated game doc
+    updated_game = wordle_db.record_guess(
+        game["game_id"], user.id, _display_name(user), text
+    )
+    if updated_game is None:
+        # Race: game ended between our check and the update
+        return
+
+    attempt   = updated_game["attempts"]   # already incremented
+    target    = updated_game["word"]
+    correct   = text == target
+    remaining = MAX_ATTEMPTS - attempt
+
+    fb        = _feedback(text, target)
+    link      = _user_link(user)
+
+    if correct:
+        points = max(1, MAX_ATTEMPTS - attempt + 1)
+        wordle_db.end_wordle_game(updated_game["game_id"])
+        wordle_db.add_wordle_score(
+            user.id, chat.id, updated_game["game_id"], points,
+            user.first_name or "", user.username or "",
+        )
+        await update.message.reply_text(
+            f"{fb}\n\n"
+            f"🎉 {link} solved it!\n"
+            f"🔤 Word: <b>{target}</b>\n"
+            f"🎯 Attempt: <b>{attempt}/{MAX_ATTEMPTS}</b>\n"
+            f"🏆 Points awarded: <b>+{points}</b>",
+            parse_mode=constants.ParseMode.HTML,
+        )
+
+    elif remaining <= 0:
+        wordle_db.end_wordle_game(updated_game["game_id"])
+        await update.message.reply_text(
+            f"{fb}\n\n"
+            f"💀 <b>Game Over!</b> All {MAX_ATTEMPTS} attempts used.\n"
+            f"🔤 The word was: <b>{target}</b>",
+            parse_mode=constants.ParseMode.HTML,
+        )
+
+    else:
+        await update.message.reply_text(
+            f"{fb}\n\n"
+            f"👤 {link} — Attempt <b>{attempt}/{MAX_ATTEMPTS}</b> · <b>{remaining}</b> left",
+            parse_mode=constants.ParseMode.HTML,
+        )
+
+
+# ─── Registration ──────────────────────────────────────────────────────────────
+
+def register_wordle_handlers(app: Application) -> None:
+    # Commands
+    app.add_handler(CommandHandler("wordle", cmd_wordle))
+    app.add_handler(CommandHandler("new5",   cmd_new5))
+    app.add_handler(CommandHandler("new6",   cmd_new6))
+    app.add_handler(CommandHandler("wend",   cmd_wend))
+    app.add_handler(CommandHandler("wlb",    cmd_wlb))
+    app.add_handler(CommandHandler("wstats", cmd_wstats))
+
+    # Message handler — group=2 (runs after WordGrid=0 and Paheli=1)
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
+            handle_wordle_guess,
+        ),
+        group=2,
+    )
