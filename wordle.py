@@ -106,8 +106,7 @@ def _format_guess_line(guess: str, target: str) -> str:
         else:
             marks[i] = "🟥"
 
-    styled = [_unicode_bold_upper(c) for c in guess]
-    return "".join(f"{m}{c}" for m, c in zip(marks, styled))
+    return "".join(marks)
 
 
 def _build_wordle_status(game: dict) -> str:
@@ -118,7 +117,7 @@ def _build_wordle_status(game: dict) -> str:
 
     for entry in guesses:
         styled_guess = "".join(_unicode_bold_upper(c) for c in entry["guess"].upper())
-        lines.append(_format_guess_line(entry["guess"], word) + f" {styled_guess}")
+        lines.append(f"{_format_guess_line(entry['guess'], word)} {styled_guess}")
 
     return "\n".join(lines)
 
