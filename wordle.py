@@ -36,7 +36,7 @@ from telegram.ext import (
 import config
 import database as db       # shared scoring — wins appear on /lb
 import wordle_db
-from words import WORDS_BY_LENGTH
+from wordle_words import WORDS_BY_LENGTH
 
 logger = logging.getLogger(__name__)
 
