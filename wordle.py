@@ -9,9 +9,9 @@ Commands:
   /wstats           — Your Wordle stats
 
 Feedback per letter:
-  ✅  right letter, right position
-  🟡  right letter, wrong position
-  ❌  letter not in the word
+  🟩 right letter, right position
+  🟨 right letter, wrong position
+  🟥 letter not in the word
 
 Points: 30 for 1st-attempt solve, 29 for 2nd, …, 1 minimum.
 Wins are recorded in the shared Word Grid scores table so they
@@ -54,7 +54,7 @@ VALID_WORDS: dict[int, set[str]] = {
 def _feedback(guess: str, target: str) -> str:
     """
     Return emoji-per-letter feedback string.
-    Example: ✅m🟡o❌n✅e❌y
+    Example: 🟩m🟨o🟥n🟩e🟥y
     """
     guess  = guess.upper()
     target = target.upper()
@@ -62,21 +62,21 @@ def _feedback(guess: str, target: str) -> str:
     marks        = [""] * len(guess)
     target_chars = list(target)
 
-    # Pass 1 — exact matches (green ✅)
+    # Pass 1 — exact matches (green 🟩)
     for i, (g, t) in enumerate(zip(guess, target_chars)):
         if g == t:
-            marks[i]        = "✅"
+            marks[i]        = "🟩"
             target_chars[i] = None
 
-    # Pass 2 — misplaced (yellow 🟡) and absent (red ❌)
+    # Pass 2 — misplaced (yellow 🟨) and absent (red 🟥)
     for i, g in enumerate(guess):
         if marks[i]:
             continue
         if g in target_chars:
-            marks[i] = "🟡"
+            marks[i] = "🟨"
             target_chars[target_chars.index(g)] = None
         else:
-            marks[i] = "❌"
+            marks[i] = "🟥"
 
     return "".join(f"{m}{c.lower()}" for m, c in zip(marks, guess))
 
@@ -131,9 +131,9 @@ async def _do_start_wordle(bot, chat, length: int) -> None:
         f"🟩 <b>WORDLE — {length}-Letter Word</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n\n"
         f"Guess the hidden <b>{length}-letter</b> word!\n\n"
-        f"✅ = right letter, right place\n"
-        f"🟡 = right letter, wrong place\n"
-        f"❌ = letter not in the word\n\n"
+        f"🟩 = right letter, right place\n"
+        f"🟨 = right letter, wrong place\n"
+        f"🟥 = letter not in the word\n\n"
         f"⚡ <b>{MAX_ATTEMPTS} attempts</b> shared among all players.\n"
         f"🏆 Points: <b>30</b> (1st guess) → <b>29</b> (2nd) → … → <b>1</b> minimum\n"
         f"🚫 No hints!\n\n"
