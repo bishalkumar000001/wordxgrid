@@ -117,7 +117,8 @@ def _build_wordle_status(game: dict) -> str:
     lines = [f"{length}-letter mode · {len(guesses)}/{MAX_ATTEMPTS}", ""]
 
     for entry in guesses:
-        lines.append(_format_guess_line(entry["guess"], word) + f" {entry['guess'].upper()}")
+        styled_guess = "".join(_unicode_bold_upper(c) for c in entry["guess"].upper())
+        lines.append(_format_guess_line(entry["guess"], word) + f" {styled_guess}")
 
     return "\n".join(lines)
 
