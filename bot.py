@@ -57,6 +57,9 @@ def is_sudo(user_id: int) -> bool:
 def format_lb_row(rank: int, row: dict) -> str:
     name = row.get("first_name") or row.get("username") or ""
     name = name.strip() or f"User{row['user_id']}"
+    if len(name) > 10:
+        name = name[:8] + "…"
+
     pts = row.get("total_points", 0)
 
     if rank == 1:
@@ -68,7 +71,7 @@ def format_lb_row(rank: int, row: dict) -> str:
     else:
         prefix = f"#{rank}"
 
-    return f"<a href='tg://user?id={row['user_id']}'><b>{prefix} {html.escape(name)}</b></a> — <b>{pts}</b> pts"
+    return f"<a href='tg://user?id={row['user_id']}'><b>{prefix} {html.escape(name)}</b></a> {pts}pts"
 
 
 def grid_message_link(chat_id: int, message_id: int) -> str:
