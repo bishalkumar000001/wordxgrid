@@ -395,7 +395,7 @@ async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"{_user_link(user)} solved it!\n"
             f"🔤 Word: <b>{target}</b>\n"
             f"🎯 Attempt: <b>{attempt}/{MAX_ATTEMPTS}</b>\n"
-            f"🏆 Points awarded: <b>+{points}</b> (shown on /lb and /wlb)"
+            f"🏆 Points awarded: <b>+{points}</b> (shown on /lb(wordgrid+wrodseek))"
         )
     elif remaining <= 0:
         status_text += (
