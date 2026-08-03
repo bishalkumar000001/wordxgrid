@@ -391,9 +391,9 @@ async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE
     status_text = _build_wordle_status(updated_game)
     if correct:
         status_text += (
-            "\n\n🎉 "
+            "\n\n "
             f"<blockquote>"
-            f"{_user_link(user)} solved it!\n"
+            f"🎉{_user_link(user)} solved it!\n"
             f"🔤 Word: <b>{target}</b>\n"
             f"🎯 Attempt: <b>{attempt}/{MAX_ATTEMPTS}</b>\n"
             f"🏆 Points Awarded: <b>+{points}</b> (shown on /lb)"
