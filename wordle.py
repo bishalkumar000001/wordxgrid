@@ -49,6 +49,41 @@ VALID_WORDS: dict[int, set[str]] = {
 }
 
 
+def _preferred_pool(length: int, top_n: int = 500) -> list[str]:
+    """
+    Return a list of the top_n words for the given length ranked by letter
+    frequency. This produces easier / more guessable words (common letters
+    and varied letters) for daily or default play.
+    """
+    # Prefer an "easier" pool for common 5-letter daily games
+    if length == 5:
+        pool = _preferred_pool(length)
+    else:
+        pool = list(VALID_WORDS.get(length, set()))
+    if not pool:
+        return pool
+
+    # Build letter frequency across the pool
+    freq: dict[str, int] = {}
+    for w in pool:
+        for ch in w:
+            freq[ch] = freq.get(ch, 0) + 1
+
+    # Score words by unique-letter frequency (prefer varied common letters)
+    def score(word: str) -> int:
+        seen = set()
+        s = 0
+        for ch in word:
+            if ch in seen:
+                continue
+            seen.add(ch)
+            s += freq.get(ch, 0)
+        return s
+
+    scored = sorted(pool, key=score, reverse=True)
+    return scored[: min(top_n, len(scored))]
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _feedback(guess: str, target: str) -> str:
