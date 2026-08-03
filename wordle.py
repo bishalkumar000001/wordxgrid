@@ -106,7 +106,7 @@ def _format_guess_line(guess: str, target: str) -> str:
         else:
             marks[i] = "🟥"
 
-    return "".join(marks)
+    return " ".join(marks)
 
 
 def _build_wordle_status(game: dict) -> str:
