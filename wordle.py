@@ -54,7 +54,7 @@ VALID_WORDS: dict[int, set[str]] = {
 def _feedback(guess: str, target: str) -> str:
     """
     Return emoji-per-letter feedback string.
-    Example: 🟩m🟨o🟥n🟩e🟥y
+    Example: 🟩M🟨O🟥N🟩E🟥Y
     """
     guess  = guess.upper()
     target = target.upper()
@@ -78,7 +78,59 @@ def _feedback(guess: str, target: str) -> str:
         else:
             marks[i] = "🟥"
 
-    return "".join(f"{m}{c.lower()}" for m, c in zip(marks, guess))
+    return "".join(f"{m}{c}" for m, c in zip(marks, guess.upper()))
+
+
+def _unicode_bold_upper(char: str) -> str:
+    if "A" <= char <= "Z":
+        return chr(0x1D400 + (ord(char) - ord("A")))
+    return char.upper()
+
+
+def _format_guess_line(guess: str, target: str) -> str:
+    guess = guess.upper()
+    target_chars = list(target.upper())
+    marks = [None] * len(guess)
+
+    for i, c in enumerate(guess):
+        if c == target_chars[i]:
+            marks[i] = "🟩"
+            target_chars[i] = None
+
+    for i, c in enumerate(guess):
+        if marks[i] is not None:
+            continue
+        if c in target_chars:
+            marks[i] = "🟨"
+            target_chars[target_chars.index(c)] = None
+        else:
+            marks[i] = "🟥"
+
+    styled = [_unicode_bold_upper(c) for c in guess]
+    return "".join(f"{m}{c}" for m, c in zip(marks, styled))
+
+
+def _build_wordle_status(game: dict) -> str:
+    guesses = game.get("guesses", [])
+    word = game.get("word", "")
+    length = game.get("length", len(word))
+    points = game.get("points")
+    title = f"🟩 <b>WORDLE — {length}-Letter Mode</b>"
+    lines = [title, "━━━━━━━━━━━━━━━━━━"]
+
+    if not guesses:
+        lines.append(f"Guess the hidden <b>{length}</b>-letter word.")
+        lines.append("Type your guess in uppercase or lowercase; results will display in CAPITAL.")
+    else:
+        for entry in guesses:
+            lines.append(_format_guess_line(entry["guess"], word))
+
+    lines.append("")
+    attempt_count = f"Attempt: <b>{len(guesses)}/{MAX_ATTEMPTS}</b>"
+    lines.append(attempt_count)
+    lines.append("🔤 Letters are case-insensitive and always shown in CAPITAL.")
+
+    return "\n".join(lines)
 
 
 def _display_name(user) -> str:
@@ -125,6 +177,17 @@ async def _do_start_wordle(bot, chat, length: int) -> None:
     word    = random.choice(pool)
     game_id = str(uuid.uuid4())
     wordle_db.create_wordle_game(game_id, chat.id, word, length)
+
+    status_msg = await bot.send_message(
+        chat.id,
+        _build_wordle_status({
+            "length": length,
+            "word": word,
+            "guesses": [],
+        }),
+        parse_mode=constants.ParseMode.HTML,
+    )
+    wordle_db.update_wordle_status_message(game_id, status_msg.message_id)
 
     await bot.send_message(
         chat.id,
@@ -264,15 +327,12 @@ async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE
     target    = updated_game["word"]
     correct   = text == target
     remaining = MAX_ATTEMPTS - attempt
-
-    fb   = _feedback(text, target)
-    link = _user_link(user)
+    status_msg_id = updated_game.get("status_msg_id")
 
     if correct:
         points = max(1, MAX_ATTEMPTS - attempt + 1)
         wordle_db.end_wordle_game(updated_game["game_id"])
 
-        # ── Unified scoring: winner appears on the shared /lb ──────────────
         db.upsert_user(
             user.id,
             user.username or "",
@@ -281,40 +341,47 @@ async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         db.add_score(
             user.id, chat.id, updated_game["game_id"],
-            target,   # use the word as the "word found" field
+            target,
             points,
         )
-
-        # ── Wordle-specific stats for /wlb ─────────────────────────────────
         wordle_db.add_wordle_score(
             user.id, chat.id, updated_game["game_id"], points,
             user.first_name or "", user.username or "",
         )
 
-        await update.message.reply_text(
-            f"{fb}\n\n"
-            f"🎉 {link} solved it!\n"
-            f"🔤 Word: <b>{target}</b>\n"
-            f"🎯 Attempt: <b>{attempt}/{MAX_ATTEMPTS}</b>\n"
-            f"🏆 Points awarded: <b>+{points}</b> (shown on /lb and /wlb)",
-            parse_mode=constants.ParseMode.HTML,
-        )
-
     elif remaining <= 0:
         wordle_db.end_wordle_game(updated_game["game_id"])
-        await update.message.reply_text(
-            f"{fb}\n\n"
-            f"💀 <b>Game Over!</b> All {MAX_ATTEMPTS} attempts used.\n"
-            f"🔤 The word was: <b>{target}</b>",
-            parse_mode=constants.ParseMode.HTML,
+
+    status_text = _build_wordle_status(updated_game)
+    if correct:
+        status_text += (
+            "\n\n🎉 "
+            f"{_user_link(user)} solved it!\n"
+            f"🔤 Word: <b>{target}</b>\n"
+            f"🎯 Attempt: <b>{attempt}/{MAX_ATTEMPTS}</b>\n"
+            f"🏆 Points awarded: <b>+{points}</b> (shown on /lb and /wlb)"
+        )
+    elif remaining <= 0:
+        status_text += (
+            "\n\n💀 <b>Game Over!</b> All "
+            f"{MAX_ATTEMPTS} attempts used.\n"
+            f"🔤 The word was: <b>{target}</b>"
         )
 
-    else:
-        await update.message.reply_text(
-            f"{fb}\n\n"
-            f"👤 {link} — Attempt <b>{attempt}/{MAX_ATTEMPTS}</b> · <b>{remaining}</b> left",
-            parse_mode=constants.ParseMode.HTML,
-        )
+    if status_msg_id:
+        try:
+            await update.message.bot.edit_message_text(
+                chat_id=chat.id,
+                message_id=status_msg_id,
+                text=status_text,
+                parse_mode=constants.ParseMode.HTML,
+            )
+        except Exception as e:
+            logger.warning("Could not edit Wordle status message: %s", e)
+
+    if not correct and remaining > 0:
+        # Keep guesses consolidated in the status message only.
+        return
 
 
 # ─── Registration ──────────────────────────────────────────────────────────────

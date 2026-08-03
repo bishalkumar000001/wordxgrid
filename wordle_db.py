@@ -43,15 +43,16 @@ def init_wordle_indexes():
 def create_wordle_game(game_id: str, group_id: int, word: str, length: int) -> None:
     db = _get_db()
     db.wordle_games.insert_one({
-        "game_id":    game_id,
-        "group_id":   group_id,
-        "word":       word.upper(),
-        "length":     length,
-        "attempts":   0,
-        "active":     1,
-        "guesses":    [],
-        "started_at": datetime.now(timezone.utc),
-        "ended_at":   None,
+        "game_id":        game_id,
+        "group_id":       group_id,
+        "word":           word.upper(),
+        "length":         length,
+        "attempts":       0,
+        "active":         1,
+        "guesses":        [],
+        "status_msg_id":  None,
+        "started_at":     datetime.now(timezone.utc),
+        "ended_at":       None,
     })
 
 
@@ -79,6 +80,14 @@ def record_guess(game_id: str, user_id: int, user_name: str, guess: str) -> Opti
         return_document=True,   # return the document AFTER the update
     )
     return doc
+
+
+def update_wordle_status_message(game_id: str, message_id: int) -> None:
+    db = _get_db()
+    db.wordle_games.update_one(
+        {"game_id": game_id},
+        {"$set": {"status_msg_id": message_id}},
+    )
 
 
 def end_wordle_game(game_id: str) -> None:
