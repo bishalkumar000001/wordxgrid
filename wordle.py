@@ -106,7 +106,8 @@ def _format_guess_line(guess: str, target: str) -> str:
         else:
             marks[i] = "🟥"
 
-    return "".join(f"{m}{c}" for m, c in zip(marks, guess))
+    styled = [_unicode_bold_upper(c) for c in guess]
+    return "".join(f"{m}{c}" for m, c in zip(marks, styled))
 
 
 def _build_wordle_status(game: dict) -> str:
@@ -279,9 +280,12 @@ async def cmd_wstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── Message handler ───────────────────────────────────────────────────────────
 
 async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+
     chat = update.effective_chat
     user = update.effective_user
-    text = (update.message.text or "").strip().upper()
+    text = update.message.text.strip().upper()
 
     if chat.type not in ("group", "supergroup"):
         return
