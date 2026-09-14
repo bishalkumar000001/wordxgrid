@@ -222,6 +222,10 @@ async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🟦 Wordle (6-letter)",
                                  callback_data=f"game:wordle6:{chat.id}"),
         ],
+        [
+            InlineKeyboardButton("🕵️ Find the Spy",
+                                 callback_data=f"game:spy:{chat.id}"),
+        ],
     ])
 
     await update.message.reply_text(
@@ -231,7 +235,8 @@ async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Apna game chunlo aur maza karo!\n\n"
         "🔤 <b>Word Grid</b> — Letter grid mein chhupe shabd dhoondhon\n"
         "🧩 <b>Paheli</b> — Desi Hinglish paheliyan bujho!\n"
-        "🟩 <b>Wordle</b> — 30 chances mein hidden word dhoomdho! 🏆\n",
+        "🟩 <b>Wordle</b> — 30 chances mein hidden word dhoomdho! 🏆\n"
+        "🕵️ <b>Find the Spy</b> — clues do, Spy ko pakdo!\n",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=keyboard,
     )
@@ -263,6 +268,14 @@ async def cb_game_selector(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _start_paheli_session(update, context, chat_id=chat_id,
                                     user=user, from_callback=True,
                                     reply_to=query.message)
+    elif game_type == "spy":
+        if chat.type == "private":
+            await query.answer("⚠️ Find the Spy sirf groups mein khelo!", show_alert=True)
+            return
+        from spy import cmd_spy
+        # Reuse the same command logic without requiring users to type /spy.
+        await cmd_spy(update, context)
+
     elif game_type in ("wordle", "wordle6"):
         if chat.type == "private":
             await query.answer("⚠️ Wordle sirf groups mein khelo!", show_alert=True)
