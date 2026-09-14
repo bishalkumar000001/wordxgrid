@@ -44,6 +44,7 @@ def lobby_kb(game_id):
         [InlineKeyboardButton("➕ Join Game", callback_data=f"spy:join:{game_id}"),
          InlineKeyboardButton("🚪 Leave", callback_data=f"spy:leave:{game_id}")],
         [InlineKeyboardButton("▶️ Start Game", callback_data=f"spy:start:{game_id}")],
+        [InlineKeyboardButton("🛑 Stop Game", callback_data=f"spy:stop:{game_id}")],
     ])
 
 
@@ -91,6 +92,74 @@ async def cmd_spy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     spy_db.set_message(game_id, msg.message_id)
     context.job_queue.run_once(spy_lobby_timeout, LOBBY_SECONDS, data={"game_id": game_id, "chat_id": chat.id}, name=f"spy_lobby_{game_id}")
+
+
+async def cmd_stopspy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    message = update.effective_message
+    user = update.effective_user
+    if not chat or chat.type == "private":
+        await message.reply_text("🛑 Use /stopspy inside the group where the Find the Spy game is running.")
+        return
+
+    game = spy_db.get_active_game(chat.id)
+    if not game:
+        await message.reply_text("ℹ️ There is no active Find the Spy game in this group.")
+        return
+
+    is_host = user.id == game.get("host_id")
+    is_admin = False
+    try:
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        is_admin = member.status in ("administrator", "creator")
+    except TelegramError:
+        pass
+
+    if not (is_host or is_admin):
+        await message.reply_text("❌ Only the game host or a group admin can stop the game.")
+        return
+
+    await _cancel_spy_game(context, game, "🛑 <b>Find the Spy game stopped.</b>")
+    await message.reply_text("✅ The Find the Spy game has been stopped. No points were awarded.", parse_mode=constants.ParseMode.HTML)
+
+
+async def cb_spy_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    game = spy_db.get_game(q.data.split(":")[2])
+    if not game or not game.get("active"):
+        await q.answer("This game is already over.", show_alert=True)
+        return
+
+    if q.from_user.id != game.get("host_id"):
+        try:
+            member = await context.bot.get_chat_member(game["group_id"], q.from_user.id)
+            is_admin = member.status in ("administrator", "creator")
+        except TelegramError:
+            is_admin = False
+        if not is_admin:
+            await q.answer("Only the host or a group admin can stop the game.", show_alert=True)
+            return
+
+    await q.answer("🛑 Stopping game...")
+    await _cancel_spy_game(context, game, "🛑 <b>Find the Spy game was stopped by the host/admin.</b>")
+
+
+async def _cancel_spy_game(context, game, group_message=None):
+    if not game or not game.get("active"):
+        return
+    spy_db.end_game(game["game_id"])
+    for prefix in ("spy_lobby_", "spy_clue_", "spy_vote_", "spy_final_"):
+        for job in context.job_queue.get_jobs_by_name(prefix + game["game_id"]):
+            job.schedule_removal()
+    # Remove any temporary final-answer callback tokens for this game.
+    for key, value in list(context.application.bot_data.items()):
+        if key.startswith("spy_final_") and isinstance(value, dict) and value.get("game_id") == game["game_id"]:
+            context.application.bot_data.pop(key, None)
+    if group_message:
+        try:
+            await context.bot.send_message(game["group_id"], group_message, parse_mode=constants.ParseMode.HTML)
+        except TelegramError:
+            pass
 
 
 async def cb_spy_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -362,8 +431,10 @@ def register_spy_handlers(app: Application):
     app.add_handler(CommandHandler("spy", cmd_spy))
     app.add_handler(CommandHandler("clue", cmd_clue))
     app.add_handler(CommandHandler("spystats", cmd_spystats))
+    app.add_handler(CommandHandler("stopspy", cmd_stopspy))
     app.add_handler(CallbackQueryHandler(cb_spy_join, pattern=r"^spy:join:"))
     app.add_handler(CallbackQueryHandler(cb_spy_leave, pattern=r"^spy:leave:"))
     app.add_handler(CallbackQueryHandler(cb_spy_start, pattern=r"^spy:start:"))
+    app.add_handler(CallbackQueryHandler(cb_spy_stop, pattern=r"^spy:stop:"))
     app.add_handler(CallbackQueryHandler(cb_spy_vote, pattern=r"^spy:vote:"))
     app.add_handler(CallbackQueryHandler(cb_spy_final, pattern=r"^spy:final:"))
