@@ -70,17 +70,17 @@ async def cmd_spy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     if chat.type == "private":
-        await update.message.reply_text("🕵️ Find the Spy is played in groups. Add me to a group and use /spy.")
+        await update.effective_message.reply_text("🕵️ Find the Spy is played in groups. Add me to a group and use /spy.")
         return
     if (spy_db.get_active_game(chat.id) or db.get_active_game(chat.id) or
             wordle_db.get_active_wordle(chat.id) or paheli_db.get_active_paheli(chat.id)):
-        await update.message.reply_text("⚠️ Another game is already running in this group.")
+        await update.effective_message.reply_text("⚠️ Another game is already running in this group.")
         return
     game_id = str(uuid.uuid4())
     spy_db.create_game(game_id, chat.id, user.id, random.choice(WORDS))
     player = {"user_id": user.id, "name": user.first_name or user.username or f"User{user.id}", "username": user.username or ""}
     spy_db.add_player(game_id, player)
-    msg = await update.message.reply_text(
+    msg = await update.effective_message.reply_text(
         "━━━━━━━━━━━━━━━━━━\n🕵️ <b>FIND THE SPY</b>\n━━━━━━━━━━━━━━━━━━\n\n"
         f"👥 Players: <b>1/{MAX_PLAYERS}</b>\n"
         f"Minimum: <b>{MIN_PLAYERS}</b> players\n\n"
@@ -182,16 +182,16 @@ async def cmd_clue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game = spy_db.get_active_game(chat.id)
     if not game or game.get("phase") != "clues": return
     if not context.args:
-        await update.message.reply_text("Use: /clue <your one-word or short clue>"); return
+        await update.effective_message.reply_text("Use: /clue <your one-word or short clue>"); return
     user = update.effective_user
     if not any(p["user_id"] == user.id for p in game["players"]): return
     clue = " ".join(context.args).strip()
     if len(clue) > 80:
-        await update.message.reply_text("❌ Keep your clue under 80 characters."); return
+        await update.effective_message.reply_text("❌ Keep your clue under 80 characters."); return
     if not spy_db.add_clue(game["game_id"], user.id, user.first_name or user.username or f"User{user.id}", clue):
-        await update.message.reply_text("⚠️ You already gave your clue."); return
+        await update.effective_message.reply_text("⚠️ You already gave your clue."); return
     game = spy_db.get_game(game["game_id"])
-    await update.message.reply_text(f"💬 {html.escape(user.first_name or 'Player')}: <b>{html.escape(clue)}</b>", parse_mode=constants.ParseMode.HTML)
+    await update.effective_message.reply_text(f"💬 {html.escape(user.first_name or 'Player')}: <b>{html.escape(clue)}</b>", parse_mode=constants.ParseMode.HTML)
     if len(game["clues"]) >= len(game["players"]):
         await _start_voting(context, game)
 
@@ -343,7 +343,7 @@ async def _end_round(context, game, spy_won: bool, reason: str):
 
 async def cmd_spystats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s = spy_db.get_stats(update.effective_user.id)
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         "🕵️ <b>Your Find the Spy Stats</b>\n\n"
         f"🎮 Games Played: <b>{s.get('games_played',0)}</b>\n"
         f"🏆 Games Won: <b>{s.get('wins',0)}</b>\n"
