@@ -94,6 +94,22 @@ async def cmd_spy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.job_queue.run_once(spy_lobby_timeout, LOBBY_SECONDS, data={"game_id": game_id, "chat_id": chat.id}, name=f"spy_lobby_{game_id}")
 
 
+async def spy_lobby_timeout(context: ContextTypes.DEFAULT_TYPE):
+    """Cancel a lobby that did not reach the minimum player count in time."""
+    data = context.job.data or {}
+    game = spy_db.get_game(data.get("game_id"))
+    if not game or not game.get("active") or game.get("phase") != "lobby":
+        return
+
+    if len(game.get("players", [])) < MIN_PLAYERS:
+        await _cancel_spy_game(
+            context,
+            game,
+            "⏰ <b>Find the Spy lobby expired.</b>\n\n"
+            f"At least {MIN_PLAYERS} players were required. No points were awarded.",
+        )
+
+
 async def cmd_stopspy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     message = update.effective_message
