@@ -27,6 +27,20 @@ def init_spy_db():
     logger.info("Spy game indexes initialized")
 
 
+def mark_private_start(user_id: int):
+    """Record that the user explicitly sent /start in a private chat."""
+    _get_db().spy_dm_users.update_one(
+        {"user_id": user_id},
+        {"$set": {"user_id": user_id, "started": True, "started_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+
+
+def has_private_started(user_id: int) -> bool:
+    """Return True only if the user explicitly sent /start in private chat."""
+    return _get_db().spy_dm_users.find_one({"user_id": user_id, "started": True}) is not None
+
+
 def create_game(game_id: str, group_id: int, host_id: int, word: str):
     _get_db().spy_games.insert_one({
         "game_id": game_id,

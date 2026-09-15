@@ -283,12 +283,10 @@ async def cb_spy_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(game["players"]) >= MAX_PLAYERS:
         await q.answer("The game is full.", show_alert=True); return
 
-    # A player can join only after they have opened/started the bot in private.
-    # get_chat() succeeds for users who have an available private chat with the bot;
-    # otherwise Telegram returns an error and we show an inline popup telling them to /start.
-    try:
-        await context.bot.get_chat(q.from_user.id)
-    except TelegramError:
+    # Require an explicit /start in the bot's private chat.
+    # get_chat() is not a valid registration check because Telegram can resolve
+    # a user's private chat even if they never started the bot.
+    if not spy_db.has_private_started(q.from_user.id):
         await q.answer("⚠️ Start the bot in DM first by sending /start, then join the game.", show_alert=True)
         return
 

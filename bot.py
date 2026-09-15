@@ -21,6 +21,7 @@ from telegram.error import TelegramError
 
 import config
 import database as db
+import spy_db
 from words import get_words_for_mode
 from wordgrid import (
     build_grid, render_grid_image,
@@ -371,6 +372,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.upsert_user(user.id, user.username, user.first_name, user.last_name or "")
 
     if update.effective_chat.type == "private":
+        # Record explicit DM /start for Find the Spy join validation.
+        spy_db.mark_private_start(user.id)
         rows = []
         if config.SUPPORT_CHANNEL:
             rows.append([InlineKeyboardButton("🌐 Support Group", url=config.SUPPORT_CHANNEL)])
