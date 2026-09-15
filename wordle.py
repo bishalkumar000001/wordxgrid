@@ -145,30 +145,38 @@ def _format_guess_line(guess: str, target: str) -> str:
     return " ".join(marks)
 
 
-def _build_wordle_status(game: dict) -> str:
+def _build_wordle_status(game: dict, opening: bool = True) -> str:
+    """Build the Wordle display. The opening includes instructions; later
+    updates are intentionally compact and show only the counter + guess grid."""
     guesses = game.get("guesses", [])
     word = game.get("word", "")
     length = game.get("length", len(word))
 
-    lines = [
-        f"❝ <b>WORDLE · {length}-LETTER CHALLENGE</b> ❞",
-        "",
-        f"<blockquote>🧠 <b>Guess the hidden {length}-letter word.</b>",
-        "",
-        "🟩 Right letter · right place",
-        "🟨 Right letter · wrong place",
-        "🟥 Letter not in the word",
-        "",
-        f"⚡ <b>{MAX_ATTEMPTS} attempts</b> shared by everyone",
-        "🏆 <b>Reward:</b> 30 points on the first guess, down to 1 minimum",
-        "🚫 No hints",
-        "",
-        f"✦ <b>Make your move.</b> Type your {length}-letter guess now.",
-        "</blockquote>",
-        "",
-        f"<b>{length}-letter mode · {len(guesses)}/{MAX_ATTEMPTS}</b>",
-        "",
-    ]
+    if opening:
+        lines = [
+            f"❝ <b>WORDLE · {length}-LETTER CHALLENGE</b> ❞",
+            "",
+            f"<blockquote>🧠 <b>Guess the hidden {length}-letter word.</b>",
+            "",
+            "🟩 Right letter · right place",
+            "🟨 Right letter · wrong place",
+            "🟥 Letter not in the word",
+            "",
+            f"⚡ <b>{MAX_ATTEMPTS} attempts</b> shared by everyone",
+            "🏆 <b>Reward:</b> 30 points on the first guess, down to 1 minimum",
+            "🚫 No hints",
+            "",
+            f"✦ <b>Make your move.</b> Type your {length}-letter guess now.",
+            "</blockquote>",
+            "",
+            f"<b>{length}-letter mode · {len(guesses)}/{MAX_ATTEMPTS}</b>",
+            "",
+        ]
+    else:
+        lines = [
+            f"<b>{length}-letter mode · {len(guesses)}/{MAX_ATTEMPTS}</b>",
+            "",
+        ]
 
     for entry in guesses:
         styled_guess = "".join(_unicode_bold_upper(c) for c in entry["guess"].upper())
@@ -414,7 +422,7 @@ async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif remaining <= 0:
         wordle_db.end_wordle_game(updated_game["game_id"])
 
-    status_text = _build_wordle_status(updated_game)
+    status_text = _build_wordle_status(updated_game, opening=False)
     if correct:
         status_text += (
             "\n\n "
