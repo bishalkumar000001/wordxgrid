@@ -110,6 +110,58 @@ async def spy_lobby_timeout(context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def cmd_stopgame(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Stop whichever game is currently blocking this group."""
+    chat = update.effective_chat
+    message = update.effective_message
+    user = update.effective_user
+    if not chat or chat.type == "private":
+        await message.reply_text("🛑 Use /stopgame inside the group where the game is running.")
+        return
+
+    # Only group admins can use the universal stop command.
+    try:
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        if member.status not in ("administrator", "creator"):
+            await message.reply_text("❌ Only group admins can use /stopgame.")
+            return
+    except TelegramError:
+        await message.reply_text("❌ I couldn't verify your admin status.")
+        return
+
+    # Prefer Find the Spy, then the other games checked by /spy.
+    spy_game = spy_db.get_active_game(chat.id)
+    if spy_game:
+        await _cancel_spy_game(context, spy_game, "🛑 <b>Find the Spy game stopped by an admin.</b>")
+        await message.reply_text("✅ Find the Spy has been stopped. No points were awarded.", parse_mode=constants.ParseMode.HTML)
+        return
+
+    grid_game = db.get_active_game(chat.id)
+    if grid_game:
+        # Reuse the existing WordGrid /end implementation so its timers/messages
+        # are cleaned up exactly as they are for /end.
+        await cmd_end(update, context)
+        return
+
+    wordle_game = wordle_db.get_active_wordle(chat.id)
+    if wordle_game:
+        wordle_db.end_wordle_game(wordle_game["game_id"])
+        for job in context.job_queue.get_jobs_by_name(f"wordle_timeout_{wordle_game['game_id']}"):
+            job.schedule_removal()
+        await message.reply_text("🛑 Wordle has been stopped. No points were awarded.")
+        return
+
+    paheli_game = paheli_db.get_active_paheli(chat.id)
+    if paheli_game:
+        paheli_db.skip_paheli(paheli_game["session_id"])
+        for job in context.job_queue.get_jobs_by_name(f"ph_timeout_{paheli_game['session_id']}"):
+            job.schedule_removal()
+        await message.reply_text("🛑 Paheli has been stopped. No points were awarded.")
+        return
+
+    await message.reply_text("ℹ️ No active game was found in this group.")
+
+
 async def cmd_stopspy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     message = update.effective_message
@@ -448,6 +500,7 @@ def register_spy_handlers(app: Application):
     app.add_handler(CommandHandler("clue", cmd_clue))
     app.add_handler(CommandHandler("spystats", cmd_spystats))
     app.add_handler(CommandHandler("stopspy", cmd_stopspy))
+    app.add_handler(CommandHandler("stopgame", cmd_stopgame))
     app.add_handler(CallbackQueryHandler(cb_spy_join, pattern=r"^spy:join:"))
     app.add_handler(CallbackQueryHandler(cb_spy_leave, pattern=r"^spy:leave:"))
     app.add_handler(CallbackQueryHandler(cb_spy_start, pattern=r"^spy:start:"))
