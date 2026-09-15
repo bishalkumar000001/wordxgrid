@@ -210,32 +210,26 @@ async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔤 Word Grid",
+            InlineKeyboardButton("WordGrid",
                                  callback_data=f"game:wordgrid:{chat.id}"),
-            InlineKeyboardButton("🧩 Paheli (Paheliyan)",
+            InlineKeyboardButton("Riddle",
                                  callback_data=f"game:paheli:{chat.id}"),
         ],
         [
-            InlineKeyboardButton("🟩 Wordle (5-letter)",
+            InlineKeyboardButton("Wordle 5",
                                  callback_data=f"game:wordle:{chat.id}"),
-            InlineKeyboardButton("🟦 Wordle (6-letter)",
+            InlineKeyboardButton("Wordle 6",
                                  callback_data=f"game:wordle6:{chat.id}"),
         ],
         [
-            InlineKeyboardButton("🕵️ Find the Spy",
+            InlineKeyboardButton("Spy",
                                  callback_data=f"game:spy:{chat.id}"),
         ],
     ])
 
     await update.message.reply_text(
-        "━━━━━━━━━━━━━━━━━━\n"
-        "🎮 <b>VelocityBots Game Center</b>\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "Apna game chunlo aur maza karo!\n\n"
-        "🔤 <b>Word Grid</b> — Letter grid mein chhupe shabd dhoondhon\n"
-        "🧩 <b>Paheli</b> — Desi Hinglish paheliyan bujho!\n"
-        "🟩 <b>Wordle</b> — 30 chances mein hidden word dhoomdho! 🏆\n"
-        "🕵️ <b>Find the Spy</b> — clues do, Spy ko pakdo!\n",
+        "❝ <b>GAME CENTER</b> ❞\n\n"
+        "Choose your game and let the challenge begin.",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=keyboard,
     )
