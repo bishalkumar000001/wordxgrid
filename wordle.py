@@ -149,7 +149,26 @@ def _build_wordle_status(game: dict) -> str:
     guesses = game.get("guesses", [])
     word = game.get("word", "")
     length = game.get("length", len(word))
-    lines = [f"{length}-letter mode · {len(guesses)}/{MAX_ATTEMPTS}", ""]
+
+    lines = [
+        f"❝ <b>WORDLE · {length}-LETTER CHALLENGE</b> ❞",
+        "",
+        f"<blockquote>🧠 <b>Guess the hidden {length}-letter word.</b>",
+        "",
+        "🟩 Right letter · right place",
+        "🟨 Right letter · wrong place",
+        "🟥 Letter not in the word",
+        "",
+        f"⚡ <b>{MAX_ATTEMPTS} attempts</b> shared by everyone",
+        "🏆 <b>Reward:</b> 30 points on the first guess, down to 1 minimum",
+        "🚫 No hints",
+        "",
+        f"✦ <b>Make your move.</b> Type your {length}-letter guess now.",
+        "</blockquote>",
+        "",
+        f"<b>{length}-letter mode · {len(guesses)}/{MAX_ATTEMPTS}</b>",
+        "",
+    ]
 
     for entry in guesses:
         styled_guess = "".join(_unicode_bold_upper(c) for c in entry["guess"].upper())
@@ -215,21 +234,6 @@ async def _do_start_wordle(bot, chat, length: int) -> None:
     )
     wordle_db.update_wordle_status_message(game_id, status_msg.message_id)
 
-    await bot.send_message(
-        chat.id,
-        f"❝ <b>WORDLE · {length}-LETTER CHALLENGE</b> ❞\n\n"
-        f"<blockquote>"
-        f"🧠 <b>Guess the hidden {length}-letter word.</b>\n\n"
-        f"🟩 Right letter · right place\n"
-        f"🟨 Right letter · wrong place\n"
-        f"🟥 Letter not in the word\n\n"
-        f"⚡ <b>{MAX_ATTEMPTS} attempts</b> shared by everyone\n"
-        f"🏆 <b>Reward:</b> 30 points on the first guess, down to 1 minimum\n"
-        f"🚫 No hints\n\n"
-        f"✦ <b>Make your move.</b> Type your {length}-letter guess now."
-        f"</blockquote>",
-        parse_mode=constants.ParseMode.HTML,
-    )
 
 
 # ─── Command handlers ──────────────────────────────────────────────────────────

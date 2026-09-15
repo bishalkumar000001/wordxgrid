@@ -588,7 +588,6 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: s
         )
         return
 
-    await update.message.reply_text("❝ <b>WORD GRID</b> ❞\n\n<blockquote>✨ Creating your premium puzzle grid…\nPlease wait a moment.</blockquote>")
     await _do_start_game(
         context.bot, context.application, context.job_queue,
         chat.id, chat.title or str(chat.id), user, mode,
