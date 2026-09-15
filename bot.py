@@ -177,11 +177,14 @@ def build_caption(words: list, found: list, mode: str) -> str:
         )
 
     return (
-        f"🎮 <b>WORD GRID CHALLENGE</b> — {mode_label}\n\n"
-        f"<b>Find these {len(words)} words:</b>\n{word_lines}\n\n"
-        f"⏰ <b>10 min</b> timer resets on every correct guess!\n"
-        f"Words remaining: <b>{remaining}</b>\n"
-        f"🏆 Points: <b>{p_first}</b> (1st) · <b>{p_normal}</b> (others) · <b>{p_last}</b> (last)"
+        f"❝ <b>WORD GRID · {mode_label} CHALLENGE</b> ❞\n\n"
+        f"<blockquote>"
+        f"🔎 <b>Find these {len(words)} hidden words:</b>\n{word_lines}\n\n"
+        f"⏰ <b>10 minutes</b> · Timer resets after every correct guess\n"
+        f"🎯 <b>Remaining:</b> {remaining}\n"
+        f"🏆 <b>Rewards:</b> {p_first} first · {p_normal} regular · {p_last} final\n\n"
+        f"✦ <b>Find them all. Own the grid.</b>"
+        f"</blockquote>"
     )
 
 
@@ -297,12 +300,10 @@ async def game_warning(context: ContextTypes.DEFAULT_TYPE):
 
     warning_msg = await context.bot.send_message(
         group_id,
-        "━━━━━━━━━━━━━━━━━━\n"
-        "⚠️ <b>GAME WARNING</b>\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
+        "❝ <b>WORD GRID · FINAL MINUTES</b> ❞\n\n<blockquote>"
         "⏰ <b>Only 3 minutes remaining!</b>\n\n"
         f"💡 <b>Free Hint:</b>\n<code>{hint}</code>\n\n"
-        "🎯 Guess any word to reset the timer!",
+        "🎯 Guess any word to reset the timer!</blockquote>",
         parse_mode=constants.ParseMode.HTML,
     )
 
@@ -335,13 +336,13 @@ async def game_timeout(context: ContextTypes.DEFAULT_TYPE):
             logger.warning("Unpin error: %s", e)
 
     scores = db.get_game_scores(game_id)
-    lines  = ["⏰ <b>TIME'S UP!</b> 10 minutes are up.\n"]
+    lines  = ["❝ <b>WORD GRID · ROUND COMPLETE</b> ❞\n\n<blockquote>⏰ <b>Time's up.</b> The 10-minute round has ended.\n"]
     if remaining:
         lines.append(f"❌ Unfound words: <b>{', '.join(remaining)}</b>\n")
     else:
         lines.append("🎉 All words were found!\n")
 
-    lines.append(f"📊 Words Found: <b>{len(found)}/{len(words)}</b>")
+    lines.append(f"📊 <b>Words Found:</b> {len(found)}/{len(words)}")
 
     if scores:
         lines.append("\n🏆 <b>Scores:</b>")
@@ -351,6 +352,7 @@ async def game_timeout(context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"{medal} <b>{n}</b> — {row['total_points']} pts")
     else:
         lines.append("No words were found this round.")
+    lines.append("</blockquote>")
 
     await context.bot.send_message(
         group_id,
@@ -378,20 +380,21 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if config.SUPPORT_CHANNEL:
             rows.append([InlineKeyboardButton("🌐 Support Group", url=config.SUPPORT_CHANNEL)])
         await update.message.reply_text(
-            f"👋 Hello <b>{user.first_name}</b>!\n\n"
-            "🎮 I'm <b>VelocityBots</b>! Add me to a group and use:\n"
+            f"❝ <b>WELCOME TO VELOCITYBOTS</b> ❞\n\n"
+            f"<blockquote>👋 Hello <b>{user.first_name}</b>!\n\n"
+            "🎮 Your premium game lounge is ready. Add me to a group and choose your challenge.\n"
             "• /game — Choose your game (Word Grid, Paheli or Wordle)\n"
             "• /new — Start a Word Grid game\n"
             "• /paheli — Start a riddle game\n"
             "• /wordle — Start a Wordle game (5-letter)\n"
-            "• /help — All commands",
+            "• /help — All commands\n\n✦ <b>Play smart. Have fun.</b></blockquote>",
             parse_mode=constants.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(rows) if rows else None,
         )
     else:
         await update.message.reply_text(
-            "🎮 VelocityBots is ready!\n"
-            "Use /game to choose a game, /new for Word Grid, /paheli for riddles, or /wordle for Wordle!",
+            "❝ <b>VELOCITYBOTS IS READY</b> ❞\n\n"
+            "<blockquote>🎮 Choose a game with /game\n✦ /new — Word Grid\n✦ /paheli — Desi Paheli\n✦ /wordle — Wordle</blockquote>",
         )
 
 
@@ -585,7 +588,7 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: s
         )
         return
 
-    await update.message.reply_text("🔄 Generating word grid, please wait…")
+    await update.message.reply_text("❝ <b>WORD GRID</b> ❞\n\n<blockquote>✨ Creating your premium puzzle grid…\nPlease wait a moment.</blockquote>")
     await _do_start_game(
         context.bot, context.application, context.job_queue,
         chat.id, chat.title or str(chat.id), user, mode,

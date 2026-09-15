@@ -127,6 +127,7 @@ def lobby_kb(game_id):
          InlineKeyboardButton("🚪 Leave", callback_data=f"spy:leave:{game_id}")],
         [InlineKeyboardButton("▶️ Start Game", callback_data=f"spy:start:{game_id}")],
         [InlineKeyboardButton("🛑 Stop Game", callback_data=f"spy:stop:{game_id}")],
+        [InlineKeyboardButton("❓ How to Play", callback_data=f"spy:help:{game_id}")],
     ])
 
 
@@ -149,22 +150,51 @@ def word_kb(game_id):
     return None
 
 
+async def spy_help_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "❝ <b>HOW TO PLAY · FIND THE SPY</b> ❞\n\n<blockquote>"
+        "1️⃣ Join with <b>➕ Join Game</b> (you must /start the bot in DM first).\n"
+        "2️⃣ Host presses <b>▶️ Start Game</b>.\n"
+        "3️⃣ Civilians get the secret word privately; the Spy does not.\n"
+        "4️⃣ Everyone gives <b>ONE clue</b> with <code>/clue your clue</code>.\n"
+        "5️⃣ Vote using the private inline buttons — one vote, no self-vote.\n"
+        "6️⃣ Spy has the final guess <b>only if tied for the highest votes</b>.\n"
+        "7️⃣ Final guess has <b>20 buttons</b>: 1 correct + 19 decoys.\n\n"
+        "🏆 Spy wins if not caught, or if the final guess is correct.\n"
+        "👨‍👩‍👧 Civilians win if the Spy is caught and fails the final guess.\n\n"
+        "💰 Spy win: +500 | Civilian win: +100 each\n"
+        "📊 Stats: /spystats\n</blockquote>"
+    )
+    if update.callback_query:
+        await update.callback_query.answer()
+        try:
+            await update.callback_query.message.reply_text(text, parse_mode=constants.ParseMode.HTML)
+        except TelegramError:
+            pass
+    else:
+        await update.effective_message.reply_text(text, parse_mode=constants.ParseMode.HTML)
+
+
+async def cb_spy_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await spy_help_text(update, context)
+
+
 async def cmd_spy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     if chat.type == "private":
-        await update.effective_message.reply_text("🕵️ Find the Spy is played in groups. Add me to a group and use /spy.")
+        await update.effective_message.reply_text("❝ <b>FIND THE SPY</b> ❞\n\n🕵️ This game is designed for groups. Add me to a group and use /spy.")
         return
     if (spy_db.get_active_game(chat.id) or db.get_active_game(chat.id) or
             wordle_db.get_active_wordle(chat.id) or paheli_db.get_active_paheli(chat.id)):
-        await update.effective_message.reply_text("⚠️ Another game is already running in this group.")
+        await update.effective_message.reply_text("❝ <b>GAME CENTER</b> ❞\n\n⚠️ Another game is already running in this group. Finish it before starting a new one.")
         return
     game_id = str(uuid.uuid4())
     spy_db.create_game(game_id, chat.id, user.id, random.choice(WORDS))
     player = {"user_id": user.id, "name": user.first_name or user.username or f"User{user.id}", "username": user.username or ""}
     spy_db.add_player(game_id, player)
     msg = await update.effective_message.reply_text(
-        "━━━━━━━━━━━━━━━━━━\n🕵️ <b>FIND THE SPY</b>\n━━━━━━━━━━━━━━━━━━\n\n"
+        "❝ <b>FIND THE SPY</b> ❞\n\n"
         f"👥 Players: <b>1/{MAX_PLAYERS}</b>\n"
         f"Minimum: <b>{MIN_PLAYERS}</b> players\n\n"
         "Join using the buttons below.\n"
@@ -336,7 +366,7 @@ async def cb_spy_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     names = "\n".join(f"{i}. {mention(x)}" for i, x in enumerate(game["players"], 1))
     try:
         await q.message.edit_text(
-            "━━━━━━━━━━━━━━━━━━\n🕵️ <b>FIND THE SPY</b>\n━━━━━━━━━━━━━━━━━━\n\n"
+            "❝ <b>FIND THE SPY</b> ❞\n\n"
             f"👥 Players: <b>{len(game['players'])}/{MAX_PLAYERS}</b>\n\n{names}\n\n"
             f"{'✅ Enough players — host can start!' if len(game['players']) >= MIN_PLAYERS else f'Need {MIN_PLAYERS - len(game["players"])} more player(s).'}",
             parse_mode=constants.ParseMode.HTML, reply_markup=lobby_kb(game["game_id"]),
@@ -382,9 +412,9 @@ async def _begin_game(context, game):
     for p in players:
         try:
             if p["user_id"] == spy["user_id"]:
-                text = "🕵️ <b>YOU ARE THE SPY!</b>\n\nYou do <b>not</b> know the secret word.\nListen to the clues and blend in.\n\nIf you're voted out, you'll get one final chance to guess the word."
+                text = "❝ <b>YOUR SECRET ROLE</b> ❞\n\n<blockquote>🕵️ <b>YOU ARE THE SPY</b>\n\nYou do <b>not</b> know the secret word.\nStudy the clues, stay convincing, and blend in.\n\n✦ If you are tied for the highest votes, you unlock the final guess.</blockquote>"
             else:
-                text = f"👨‍👩‍👧 <b>YOU ARE A CIVILIAN!</b>\n\n🔑 Secret word: <b>{html.escape(game['word'])}</b>\n\nGive a clue that helps other civilians, but don't make the word too obvious!"
+                text = f"❝ <b>YOUR SECRET ROLE</b> ❞\n\n<blockquote>👨‍👩‍👧 <b>YOU ARE A CIVILIAN</b>\n\n🔑 <b>Secret word:</b> {html.escape(game['word'])}\n\nGive a clever clue that helps the civilians without making the word too obvious.</blockquote>"
             await context.bot.send_message(p["user_id"], text, parse_mode=constants.ParseMode.HTML)
         except TelegramError:
             failures.append(p)
@@ -396,10 +426,10 @@ async def _begin_game(context, game):
     names = "\n".join(f"{i}. {mention(p)}" for i, p in enumerate(players, 1))
     await context.bot.send_message(
         game["group_id"],
-        "━━━━━━━━━━━━━━━━━━\n🎤 <b>CLUE ROUND</b>\n━━━━━━━━━━━━━━━━━━\n\n"
+        "❝ <b>FIND THE SPY · CLUE ROUND</b> ❞\n\n<blockquote>"
         "Everyone must give <b>one</b> clue. Don't say the secret word.\n\n" + names +
         "\n\n🗣️ Send your clue with <code>/clue &lt;your clue&gt;</code>.\n"
-        f"⏱️ You have {CLUE_SECONDS} seconds.", parse_mode=constants.ParseMode.HTML)
+        f"⏱️ You have {CLUE_SECONDS} seconds.</blockquote>", parse_mode=constants.ParseMode.HTML)
     context.job_queue.run_once(spy_clue_timeout, CLUE_SECONDS, data={"game_id": game["game_id"], "chat_id": game["group_id"]}, name=f"spy_clue_{game['game_id']}")
 
 
@@ -434,7 +464,7 @@ async def _start_voting(context, game):
     if game.get("phase") != "clues": return
     spy_db.set_voting(game["game_id"])
     game = spy_db.get_game(game["game_id"])
-    lines = ["━━━━━━━━━━━━━━━━━━", "🗳️ <b>VOTING TIME</b>", "━━━━━━━━━━━━━━━━━━", "", "Who do you think is the 🕵️ SPY?", "", "Tap one player below. Your vote is private."]
+    lines = ["❝ <b>FIND THE SPY · VOTING</b> ❞", "", "<blockquote>", "Who do you think is the 🕵️ <b>SPY</b>?", "", "🔐 Your vote is private.", "✦ Choose one player below.", "</blockquote>"]
     if game["clues"]:
         lines += ["", "💬 <b>Clues:</b>"] + [f"• <b>{html.escape(c['name'])}</b>: {html.escape(c['clue'])}" for c in game["clues"]]
     await context.bot.send_message(game["group_id"], "\n".join(lines), parse_mode=constants.ParseMode.HTML, reply_markup=vote_kb(game))
@@ -490,21 +520,21 @@ async def _finish_voting(context, game):
     if spy_is_unique_highest:
         await context.bot.send_message(
             game["group_id"],
-            f"🗳️ <b>VOTE RESULTS</b>\n\n{result}\n\n🚨 {mention(eliminated)} was eliminated!\n\n❌ The Spy received the most votes alone, so there is <b>no final chance</b>.",
+            f"❝ <b>FIND THE SPY · VOTE RESULTS</b> ❞\n\n<blockquote>{result}\n\n🚨 {mention(eliminated)} was eliminated.\n\n❌ The Spy received the highest vote count alone. <b>No final chance.</b></blockquote>",
             parse_mode=constants.ParseMode.HTML,
         )
         await _end_round(context, game, spy_won=False, reason="The Spy received more votes than every other player.")
     elif spy_is_tied_highest:
         await context.bot.send_message(
             game["group_id"],
-            f"🗳️ <b>VOTE RESULTS</b>\n\n{result}\n\n⚖️ The Spy is tied for the highest votes!\n\n🎯 The Spy gets the special final chance.",
+            f"❝ <b>FIND THE SPY · VOTE RESULTS</b> ❞\n\n<blockquote>{result}\n\n⚖️ The Spy is tied for the highest votes.\n\n🎯 <b>Special final chance unlocked.</b></blockquote>",
             parse_mode=constants.ParseMode.HTML,
         )
         await _spy_final_chance(context, game)
     else:
         await context.bot.send_message(
             game["group_id"],
-            f"🗳️ <b>VOTE RESULTS</b>\n\n{result}\n\n🚨 {mention(eliminated) if eliminated else 'Nobody'} was eliminated!",
+            f"❝ <b>FIND THE SPY · VOTE RESULTS</b> ❞\n\n<blockquote>{result}\n\n🚨 {mention(eliminated) if eliminated else 'Nobody'} was eliminated.</blockquote>",
             parse_mode=constants.ParseMode.HTML,
         )
         await _end_round(context, game, spy_won=True, reason="The Spy was not the highest-voted player and survived the vote!")
@@ -617,6 +647,7 @@ async def cmd_spystats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def register_spy_handlers(app: Application):
     spy_db.init_spy_db()
     app.add_handler(CommandHandler("spy", cmd_spy))
+    app.add_handler(CommandHandler("spyhelp", spy_help_text))
     app.add_handler(CommandHandler("clue", cmd_clue))
     app.add_handler(CommandHandler("spystats", cmd_spystats))
     app.add_handler(CommandHandler("stopspy", cmd_stopspy))
@@ -625,5 +656,6 @@ def register_spy_handlers(app: Application):
     app.add_handler(CallbackQueryHandler(cb_spy_leave, pattern=r"^spy:leave:"))
     app.add_handler(CallbackQueryHandler(cb_spy_start, pattern=r"^spy:start:"))
     app.add_handler(CallbackQueryHandler(cb_spy_stop, pattern=r"^spy:stop:"))
+    app.add_handler(CallbackQueryHandler(cb_spy_help, pattern=r"^spy:help:"))
     app.add_handler(CallbackQueryHandler(cb_spy_vote, pattern=r"^spy:vote:"))
     app.add_handler(CallbackQueryHandler(cb_spy_final, pattern=r"^spy:final:"))

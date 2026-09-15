@@ -140,26 +140,25 @@ def _is_sudo(user_id: int) -> bool:
 def _make_riddle_text(riddle: dict, hint_count: int = 0) -> str:
     d_emoji = DIFFICULTY_EMOJI.get(riddle.get("difficulty", "easy"), "🟡")
     d_label = DIFFICULTY_LABEL.get(riddle.get("difficulty", "easy"), "Saral")
-    pts     = riddle.get("points", 10)
+    pts = riddle.get("points", 10)
 
     lines = [
-        "━━━━━━━━━━━━━━━━━━",
-        "🧩 <b>DESI PAHELI — CHALLENGE!</b>",
-        "━━━━━━━━━━━━━━━━━━\n",
-        f"<b>{riddle['question']}</b>\n",
-        f"{d_emoji} <b>Level:</b> {d_label}",
-        f"🏆 <b>Points:</b> {pts}  ⏱ <b>2.5 min</b>",
+        "❝ <b>DESI PAHELI · PREMIUM CHALLENGE</b> ❞",
         "",
-        "👇 <b>Sahi jawab button dabao!</b>",
+        "<blockquote>",
+        f"🧩 <b>{riddle['question']}</b>\n",
+        f"{d_emoji} <b>Level:</b> {d_label}",
+        f"🏆 <b>Reward:</b> {pts} points",
+        "⏱ <b>Time:</b> 2.5 minutes",
+        "",
+        "✦ <b>Choose the answer that feels right.</b>",
+        "</blockquote>",
     ]
-
     if hint_count > 0:
-        hints  = riddle.get("hints", [])
-        shown  = hints[:hint_count]
-        hlines = "\n".join(f"  • {h}" for h in shown)
-        lines.append(f"\n💡 <b>Hints ({hint_count}):</b>\n{hlines}")
-
-    lines.append("━━━━━━━━━━━━━━━━━━")
+        hints = riddle.get("hints", [])
+        shown = hints[:hint_count]
+        hlines = "\n".join(f"• {h}" for h in shown)
+        lines.append(f"💡 <b>Hints Used:</b> {hint_count}\n<blockquote>{hlines}</blockquote>")
     return "\n".join(lines)
 
 
@@ -292,13 +291,13 @@ async def cmd_paheli(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
 
     if pdb.is_banned(user.id):
-        await update.message.reply_text("🚫 Aap Paheli se ban hain. Admin se contact karo.")
+        await update.message.reply_text("❝ <b>DESI PAHELI</b> ❞ ❌\n\nYou are currently restricted from playing. Please contact an admin.")
         return
 
     cd = pdb.check_cooldown(user.id, "paheli", PAHELI_COOLDOWN_SECONDS)
     if cd > 0:
         await update.message.reply_text(
-            f"⏳ <b>{cd}s</b> baad try karo.",
+            f"❝ <b>DESI PAHELI</b> ❞\n\n⏳ Please wait <b>{cd}s</b> before starting another riddle.",
             parse_mode=constants.ParseMode.HTML,
         )
         return
@@ -315,7 +314,7 @@ async def _start_paheli_session(update: Update, context: ContextTypes.DEFAULT_TY
     chat_type = (msg.chat.type if msg else "group") if hasattr(msg, "chat") else "group"
 
     if chat_type == "private":
-        text = "⚠️ Paheli groups mein khelo! Kisi group mein /paheli type karo."
+        text = "❝ <b>DESI PAHELI</b> ❞\n\n⚠️ This challenge is available in groups only. Use /paheli inside a group."
         if msg:
             await msg.reply_text(text)
         return
@@ -326,7 +325,7 @@ async def _start_paheli_session(update: Update, context: ContextTypes.DEFAULT_TY
         session_id = existing["session_id"]
         riddle     = existing["riddle"]
         hints_used = existing.get("hints_used", 0)
-        text = "⚠️ Ek paheli pehle se chal rahi hai!\n\n" + _make_riddle_text(riddle, hints_used)
+        text = "❝ <b>DESI PAHELI</b> ❞\n\n⚠️ A riddle is already in progress.\n\n" + _make_riddle_text(riddle, hints_used)
         if msg:
             await msg.reply_text(
                 text,
@@ -340,7 +339,7 @@ async def _start_paheli_session(update: Update, context: ContextTypes.DEFAULT_TY
     riddle = _pick_riddle(chat_id)
     if not riddle:
         if msg:
-            await msg.reply_text("❌ Abhi koi paheli nahi hai. Baad mein try karo!")
+            await msg.reply_text("❝ <b>DESI PAHELI</b> ❞\n\n❌ No riddle is available right now. Please try again shortly!")
         return
 
     # Shuffle options before showing
@@ -658,7 +657,7 @@ async def cmd_paheli_hint(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     session = pdb.get_active_paheli(chat.id)
     if not session:
-        await update.message.reply_text("❌ Koi paheli active nahi. /paheli se shuru karo!")
+        await update.message.reply_text("❝ <b>DESI PAHELI</b> ❞\n\n❌ No active riddle. Start one with /paheli.")
         return
 
     riddle     = session["riddle"]
@@ -708,7 +707,7 @@ async def cmd_paheli_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     session = pdb.get_active_paheli(chat.id)
     if not session:
-        await update.message.reply_text("❌ Koi paheli active nahi!")
+        await update.message.reply_text("❝ <b>DESI PAHELI</b> ❞\n\n❌ No active riddle is running.")
         return
 
     player    = pdb.ensure_player(user.id, user.first_name or "", user.username or "")

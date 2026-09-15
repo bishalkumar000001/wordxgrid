@@ -186,17 +186,18 @@ async def _do_start_wordle(bot, chat, length: int) -> None:
         remaining = MAX_ATTEMPTS - used
         await bot.send_message(
             chat.id,
-            f"⚠️ A Wordle game is already running!\n\n"
-            f"🔤 Word length: <b>{existing['length']} letters</b>\n"
-            f"🎯 Attempts used: <b>{used}/{MAX_ATTEMPTS}</b> — <b>{remaining}</b> remaining\n\n"
-            f"Type your <b>{existing['length']}-letter</b> guess in the chat!",
+            f"❝ <b>WORDLE</b> ❞\n\n"
+            f"⚠️ <b>A game is already in progress.</b>\n\n"
+            f"🔤 <b>Word Length:</b> {existing['length']} letters\n"
+            f"🎯 <b>Attempts:</b> {used}/{MAX_ATTEMPTS} · {remaining} remaining\n\n"
+            f"✦ Enter your <b>{existing['length']}-letter</b> guess below.",
             parse_mode=constants.ParseMode.HTML,
         )
         return
 
     pool = list(VALID_WORDS.get(length, set()))
     if not pool:
-        await bot.send_message(chat.id, f"❌ No {length}-letter words available.")
+        await bot.send_message(chat.id, f"❝ <b>WORDLE</b> ❞\n\n❌ No {length}-letter words are available right now. Please try again shortly.")
         return
 
     word    = random.choice(pool)
@@ -216,16 +217,17 @@ async def _do_start_wordle(bot, chat, length: int) -> None:
 
     await bot.send_message(
         chat.id,
-        f"🟩 <b>WORDLE — {length}-Letter Word</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n\n"
-        f"Guess the hidden <b>{length}-letter</b> word!\n\n"
-        f"🟩 = right letter, right place\n"
-        f"🟨 = right letter, wrong place\n"
-        f"🟥 = letter not in the word\n\n"
-        f"⚡ <b>{MAX_ATTEMPTS} attempts</b> shared among all players.\n"
-        f"🏆 Points: <b>30</b> (1st guess) → <b>29</b> (2nd) → … → <b>1</b> minimum\n"
-        f"🚫 No hints!\n\n"
-        f"📝 Type your {length}-letter guess now!",
+        f"❝ <b>WORDLE · {length}-LETTER CHALLENGE</b> ❞\n\n"
+        f"<blockquote>"
+        f"🧠 <b>Guess the hidden {length}-letter word.</b>\n\n"
+        f"🟩 Right letter · right place\n"
+        f"🟨 Right letter · wrong place\n"
+        f"🟥 Letter not in the word\n\n"
+        f"⚡ <b>{MAX_ATTEMPTS} attempts</b> shared by everyone\n"
+        f"🏆 <b>Reward:</b> 30 points on the first guess, down to 1 minimum\n"
+        f"🚫 No hints\n\n"
+        f"✦ <b>Make your move.</b> Type your {length}-letter guess now."
+        f"</blockquote>",
         parse_mode=constants.ParseMode.HTML,
     )
 
@@ -235,7 +237,7 @@ async def _do_start_wordle(bot, chat, length: int) -> None:
 async def _start_wordle(update: Update, context: ContextTypes.DEFAULT_TYPE, length: int):
     chat = update.effective_chat
     if chat.type not in ("group", "supergroup"):
-        await update.message.reply_text("⚠️ Wordle can only be played in groups.")
+        await update.message.reply_text("❝ <b>WORDLE</b> ❞\n\n⚠️ This challenge is available in groups only.")
         return
     await _do_start_wordle(context.bot, chat, length)
 
@@ -263,7 +265,7 @@ async def cb_new_wordle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = query.message.chat
 
     if chat.type not in ("group", "supergroup"):
-        await query.message.reply_text("⚠️ Wordle can only be played in groups.")
+        await query.message.reply_text("❝ <b>WORDLE</b> ❞\n\n⚠️ This challenge is available in groups only.")
         return
 
     await _do_start_wordle(context.bot, chat, length)
@@ -278,18 +280,19 @@ async def cmd_wend(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     member = await chat.get_member(user.id)
     if not _is_admin(member) and user.id not in config.SUDO_USERS:
-        await update.message.reply_text("⚠️ Only admins can end the Wordle game.")
+        await update.message.reply_text("❝ <b>WORDLE</b> ❞\n\n⚠️ Only group admins can close the current challenge.")
         return
 
     game = wordle_db.get_active_wordle(chat.id)
     if not game:
-        await update.message.reply_text("No active Wordle game in this group.")
+        await update.message.reply_text("❝ <b>WORDLE</b> ❞\n\nℹ️ No active challenge is running in this group.")
         return
 
     wordle_db.end_wordle_game(game["game_id"])
     await update.message.reply_text(
-        f"🔴 Wordle game ended by {_user_link(user)}.\n"
-        f"The word was: <b>{game['word']}</b>",
+        f"❝ <b>WORDLE · CHALLENGE CLOSED</b> ❞\n\n"
+        f"🛑 Closed by {_user_link(user)}.\n\n"
+        f"🔑 <b>The hidden word was:</b> {game['word']}",
         parse_mode=constants.ParseMode.HTML,
     )
 
@@ -300,11 +303,11 @@ async def cmd_wlb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows     = wordle_db.get_wordle_leaderboard(group_id=scope_id, limit=10)
 
     if not rows:
-        await update.message.reply_text("No Wordle scores yet in this chat!")
+        await update.message.reply_text("❝ <b>WORDLE · LEADERBOARD</b> ❞\n\nℹ️ No scores have been recorded yet. Start playing to claim your place.")
         return
 
     scope_label = "📍 This Chat" if scope_id else "🌍 Global"
-    lines = [f"🏆 <b>Wordle Leaderboard — {scope_label}</b>\n"]
+    lines = [f"❝ <b>WORDLE · LEADERBOARD</b> ❞\n", f"📍 <b>{scope_label}</b>\n"]
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     for i, row in enumerate(rows, 1):
         name = row.get("first_name") or f"User{row['_id']}"
@@ -323,9 +326,10 @@ async def cmd_wstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user  = update.effective_user
     stats = wordle_db.get_wordle_stats(user.id)
     await update.message.reply_text(
-        f"📊 <b>Your Wordle Stats</b>\n\n"
+        f"❝ <b>WORDLE · YOUR STATS</b> ❞\n\n<blockquote>"
         f"🏆 Total Points: <b>{stats.get('total_points', 0)}</b>\n"
-        f"🎯 Games Won:    <b>{stats.get('games_won', 0)}</b>",
+        f"🎯 <b>Games Won:</b> {stats.get('games_won', 0)}\n"
+        f"</blockquote>",
         parse_mode=constants.ParseMode.HTML,
     )
 
@@ -356,7 +360,7 @@ async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Validate against word list
     if text not in VALID_WORDS.get(length, set()):
         await update.message.reply_text(
-            f"❌ <b>{text.lower()}</b> — word doesn't exist!",
+            f"❝ <b>WORDLE</b> ❞\n\n❌ <b>{text.lower()}</b> is not in the word list. Try another word.",
             parse_mode=constants.ParseMode.HTML,
         )
         return
@@ -365,7 +369,7 @@ async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE
     previous = {entry["guess"] for entry in game.get("guesses", [])}
     if text in previous:
         await update.message.reply_text(
-            "⚠️ You already guessed that word. Try a different word.",
+            "❝ <b>WORDLE</b> ❞\n\n⚠️ You already tried that word. Choose a different guess.",
             parse_mode=constants.ParseMode.HTML,
         )
         return
