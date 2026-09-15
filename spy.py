@@ -31,6 +31,49 @@ WORDS = [
 ]
 
 
+
+FINAL_SIMILAR_WORDS = {
+    "PIZZA": ["BURGER", "PASTA", "SANDWICH", "LASAGNA", "TACO", "NOODLES", "BREAD", "CHEESE", "CAKE"],
+    "BURGER": ["PIZZA", "SANDWICH", "HOT DOG", "TACO", "PASTA", "WRAP", "FRIES", "NUGGETS", "STEAK"],
+    "AIRPORT": ["RAILWAY STATION", "BUS STATION", "TRAIN", "AIRPLANE", "HOTEL", "TAXI", "TERMINAL", "TRAVEL", "LUGGAGE"],
+    "RAILWAY STATION": ["AIRPORT", "BUS STATION", "TRAIN", "PLATFORM", "METRO", "TAXI", "HOTEL", "TRAVEL", "LUGGAGE"],
+    "BEACH": ["SWIMMING POOL", "SEA", "ISLAND", "RESORT", "MOUNTAIN", "FOREST", "PARK", "LAKE", "RIVER"],
+    "SWIMMING POOL": ["BEACH", "SEA", "LAKE", "WATER PARK", "RESORT", "RIVER", "HOTEL", "GYM", "PARK"],
+    "DOCTOR": ["DENTIST", "NURSE", "HOSPITAL", "PATIENT", "MEDICINE", "SURGEON", "CLINIC", "THERAPIST", "PHARMACY"],
+    "DENTIST": ["DOCTOR", "NURSE", "HOSPITAL", "CLINIC", "TOOTH", "MEDICINE", "SURGEON", "PHARMACY", "PATIENT"],
+    "HOTEL": ["HOSPITAL", "RESTAURANT", "RESORT", "HOSTEL", "AIRPORT", "ROOM", "LOBBY", "MOTEL", "APARTMENT"],
+    "HOSPITAL": ["DOCTOR", "DENTIST", "CLINIC", "NURSE", "PHARMACY", "PATIENT", "MEDICINE", "AMBULANCE", "HOTEL"],
+    "SCHOOL": ["UNIVERSITY", "COLLEGE", "CLASSROOM", "TEACHER", "STUDENT", "LIBRARY", "EXAM", "HOMEWORK", "CAMPUS"],
+    "UNIVERSITY": ["SCHOOL", "COLLEGE", "CAMPUS", "STUDENT", "TEACHER", "LIBRARY", "LECTURE", "EXAM", "CLASSROOM"],
+    "WEDDING": ["BIRTHDAY", "PARTY", "MARRIAGE", "CEREMONY", "BRIDE", "GROOM", "RING", "DANCE", "CELEBRATION"],
+    "BIRTHDAY": ["WEDDING", "PARTY", "CAKE", "GIFT", "CANDLE", "CELEBRATION", "ANNIVERSARY", "INVITATION", "BALLOON"],
+    "FOOTBALL": ["CRICKET", "SOCCER", "BASKETBALL", "TENNIS", "STADIUM", "PLAYER", "GOAL", "MATCH", "REFEREE"],
+    "CRICKET": ["FOOTBALL", "BASEBALL", "TENNIS", "BASKETBALL", "STADIUM", "PLAYER", "BAT", "BALL", "MATCH"],
+    "COFFEE": ["TEA", "MILK", "CAPPUCCINO", "LATTE", "JUICE", "DRINK", "CAFE", "SUGAR", "CHOCOLATE"],
+    "TEA": ["COFFEE", "MILK", "JUICE", "DRINK", "CAFE", "SUGAR", "LEMON", "CHOCOLATE", "HERBAL TEA"],
+    "DOG": ["WOLF", "CAT", "FOX", "HORSE", "PET", "PUPPY", "LION", "TIGER", "BEAR"],
+    "WOLF": ["DOG", "FOX", "LION", "TIGER", "BEAR", "CAT", "HORSE", "ANIMAL", "JACKAL"],
+    "APPLE": ["ORANGE", "BANANA", "MANGO", "GRAPE", "PEAR", "PEACH", "FRUIT", "CHERRY", "WATERMELON"],
+    "ORANGE": ["APPLE", "BANANA", "MANGO", "LEMON", "GRAPE", "PEACH", "FRUIT", "TANGERINE", "WATERMELON"],
+    "MOVIE": ["THEATRE", "CONCERT", "MUSIC", "ACTOR", "FILM", "CINEMA", "SHOW", "SERIES", "TELEVISION"],
+    "THEATRE": ["MOVIE", "CONCERT", "CINEMA", "STAGE", "ACTOR", "MUSIC", "SHOW", "OPERA", "DRAMA"],
+    "RESTAURANT": ["KITCHEN", "HOTEL", "CAFE", "FOOD", "CHEF", "MENU", "DINNER", "PIZZA", "RESTAURANT"],
+    "KITCHEN": ["RESTAURANT", "DINING ROOM", "COOKING", "CHEF", "OVEN", "FRIDGE", "FOOD", "CAFE", "HOTEL"],
+    "MOUNTAIN": ["FOREST", "BEACH", "HILL", "VALLEY", "RIVER", "LAKE", "CLIMBING", "SNOW", "ISLAND"],
+    "FOREST": ["MOUNTAIN", "JUNGLE", "PARK", "TREE", "RIVER", "LAKE", "ANIMAL", "BEACH", "VALLEY"],
+    "CAR": ["BUS", "AIRPLANE", "TRAIN", "TAXI", "TRUCK", "MOTORCYCLE", "VEHICLE", "ROAD", "DRIVER"],
+    "BUS": ["CAR", "TRAIN", "AIRPLANE", "TAXI", "TRUCK", "METRO", "VEHICLE", "ROAD", "DRIVER"],
+    "AIRPLANE": ["CAR", "TRAIN", "BUS", "AIRPORT", "HELICOPTER", "JET", "FLIGHT", "TRAVEL", "PILOT"],
+    "TRAIN": ["AIRPLANE", "CAR", "BUS", "RAILWAY STATION", "METRO", "TRAM", "TRACK", "TRAVEL", "TAXI"],
+    "PHONE": ["COMPUTER", "TABLET", "LAPTOP", "CAMERA", "INTERNET", "SMARTPHONE", "CHARGER", "SCREEN", "KEYBOARD"],
+    "COMPUTER": ["PHONE", "LAPTOP", "TABLET", "KEYBOARD", "MOUSE", "INTERNET", "SCREEN", "SOFTWARE", "CAMERA"],
+    "MUSIC": ["CONCERT", "MOVIE", "SONG", "SINGER", "GUITAR", "DANCE", "RADIO", "PIANO", "THEATRE"],
+    "CONCERT": ["MUSIC", "MOVIE", "THEATRE", "SINGER", "BAND", "STAGE", "SONG", "DANCE", "FESTIVAL"],
+    "SUMMER": ["WINTER", "SPRING", "AUTUMN", "SUN", "HEAT", "HOLIDAY", "BEACH", "RAIN", "WEATHER"],
+    "WINTER": ["SUMMER", "SPRING", "AUTUMN", "SNOW", "COLD", "ICE", "HOLIDAY", "MOUNTAIN", "WEATHER"],
+    "CHOCOLATE": ["CAKE", "CANDY", "ICE CREAM", "COFFEE", "COOKIE", "DESSERT", "SUGAR", "BISCUIT", "PIZZA"],
+}
+
 def name_of(p):
     return p.get("name") or f"User{p['user_id']}"
 
@@ -399,8 +442,15 @@ async def _finish_voting(context, game):
 
 async def _spy_final_chance(context, game):
     spy = next(p for p in game["players"] if p["user_id"] == game["spy_id"])
-    decoys = random.sample([w for w in WORDS if w != game["word"]], 3)
-    options = decoys + [game["word"]]
+    answer = game["word"]
+    decoy_pool = list(FINAL_SIMILAR_WORDS.get(answer, []))
+    if len(decoy_pool) < 19:
+        fallback = [w for w in WORDS if w != answer and w not in decoy_pool]
+        decoy_pool.extend(fallback)
+    # Exactly 20 choices: the real word + 19 decoys.
+    # Prefer related words, then fill from the game word pool if needed.
+    decoys = random.sample(decoy_pool, 19)
+    options = decoys + [answer]
     random.shuffle(options)
     kb = []
     row = []
@@ -424,7 +474,7 @@ async def _spy_final_chance(context, game):
     try:
         await context.bot.send_message(
             spy["user_id"],
-            "🧠 <b>FINAL CHANCE</b>\n\nChoose the secret word:",
+            "🧠 <b>FINAL CHANCE</b>\n\nChoose the secret word from 20 similar options:",
             parse_mode=constants.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(kb),
         )
