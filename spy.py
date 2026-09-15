@@ -282,6 +282,16 @@ async def cb_spy_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("You're already in the game!"); return
     if len(game["players"]) >= MAX_PLAYERS:
         await q.answer("The game is full.", show_alert=True); return
+
+    # A player can join only after they have opened/started the bot in private.
+    # get_chat() succeeds for users who have an available private chat with the bot;
+    # otherwise Telegram returns an error and we show an inline popup telling them to /start.
+    try:
+        await context.bot.get_chat(q.from_user.id)
+    except TelegramError:
+        await q.answer("⚠️ Start the bot in DM first by sending /start, then join the game.", show_alert=True)
+        return
+
     p = {"user_id": q.from_user.id, "name": q.from_user.first_name or q.from_user.username or f"User{q.from_user.id}", "username": q.from_user.username or ""}
     spy_db.add_player(game["game_id"], p)
     await q.answer("✅ You joined!")
@@ -429,15 +439,38 @@ async def _finish_voting(context, game):
     for target in votes.values(): counts[target] = counts.get(target, 0) + 1
     max_votes = max(counts.values()) if counts else 0
     top = [uid for uid, n in counts.items() if n == max_votes]
+    spy_id = game["spy_id"]
+    spy_votes = counts.get(spy_id, 0)
+    spy_is_unique_highest = spy_votes == max_votes and len(top) == 1
+    spy_is_tied_highest = spy_votes == max_votes and len(top) > 1
+
+    # If the Spy is uniquely the highest-voted player, the Spy loses immediately.
+    # The special final guess is available ONLY when the Spy is tied for the highest votes.
     eliminated_id = random.choice(top) if top else None
     eliminated = next((p for p in game["players"] if p["user_id"] == eliminated_id), None)
-    spy_id = game["spy_id"]
     result = "\n".join(f"• {mention(p)} — <b>{counts[p['user_id']]}</b> vote(s)" for p in game["players"])
-    await context.bot.send_message(game["group_id"], f"🗳️ <b>VOTE RESULTS</b>\n\n{result}\n\n🚨 {mention(eliminated) if eliminated else 'Nobody'} was eliminated!", parse_mode=constants.ParseMode.HTML)
-    if eliminated_id == spy_id:
+
+    if spy_is_unique_highest:
+        await context.bot.send_message(
+            game["group_id"],
+            f"🗳️ <b>VOTE RESULTS</b>\n\n{result}\n\n🚨 {mention(eliminated)} was eliminated!\n\n❌ The Spy received the most votes alone, so there is <b>no final chance</b>.",
+            parse_mode=constants.ParseMode.HTML,
+        )
+        await _end_round(context, game, spy_won=False, reason="The Spy received more votes than every other player.")
+    elif spy_is_tied_highest:
+        await context.bot.send_message(
+            game["group_id"],
+            f"🗳️ <b>VOTE RESULTS</b>\n\n{result}\n\n⚖️ The Spy is tied for the highest votes!\n\n🎯 The Spy gets the special final chance.",
+            parse_mode=constants.ParseMode.HTML,
+        )
         await _spy_final_chance(context, game)
     else:
-        await _end_round(context, game, spy_won=True, reason="The Spy survived the vote!")
+        await context.bot.send_message(
+            game["group_id"],
+            f"🗳️ <b>VOTE RESULTS</b>\n\n{result}\n\n🚨 {mention(eliminated) if eliminated else 'Nobody'} was eliminated!",
+            parse_mode=constants.ParseMode.HTML,
+        )
+        await _end_round(context, game, spy_won=True, reason="The Spy was not the highest-voted player and survived the vote!")
 
 
 async def _spy_final_chance(context, game):
