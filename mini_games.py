@@ -236,36 +236,80 @@ async def memory_cmd(update, context):
         await start_memory(context.bot, update.effective_chat)
 
 async def start_memory(bot, chat):
+    """Start a Memory Test without blocking Telegram's update loop.
+
+    IMPORTANT: never await the 5s + 20s timers from the command handler itself.
+    The previous implementation did that, which blocked update processing and
+    caused users' answers to be delivered only after the round had timed out.
+    """
     if chat.id in SESSIONS:
         await bot.send_message(chat.id, "⚠️ Ek game already chal raha hai. Finish that round first!")
         return
+
     length = random.randint(6, 9)
     seq = ''.join(random.choice(string.digits) for _ in range(length))
     sid = "memory-" + uuid.uuid4().hex[:10]
-    SESSIONS[chat.id] = {"type":"memory", "id":sid, "seq":seq, "visible":True}
-    msg = await bot.send_message(chat.id,
+    SESSIONS[chat.id] = {
+        "type": "memory",
+        "id": sid,
+        "seq": seq,
+        "visible": True,
+        "finished": False,
+        "deadline": None,
+    }
+
+    msg = await bot.send_message(
+        chat.id,
         f"❝ <b>🧠 MEMORY TEST</b> ❞\n\n"
         f"Remember this sequence for <b>5 seconds</b>:\n\n"
         f"<code>{' '.join(seq)}</code>\n\n"
-        f"👀 Focus! Then type it back exactly.", parse_mode=constants.ParseMode.HTML)
-    await asyncio.sleep(5)
-    s = SESSIONS.get(chat.id)
-    if not s or s.get("id") != sid:
-        return
-    s["visible"] = False
+        f"👀 Focus! Then type it back exactly.",
+        parse_mode=constants.ParseMode.HTML,
+    )
+
+    # Run timers in the background. Do NOT block the update dispatcher.
+    asyncio.create_task(_memory_round_flow(bot, chat.id, sid, seq, msg))
+
+
+async def _memory_round_flow(bot, chat_id, sid, seq, msg):
+    """Hide the sequence after 5s and close the round 20s later."""
     try:
-        await msg.edit_text(
-            "❝ <b>🧠 MEMORY TEST</b> ❞ ❌\n\n"
-            "Sequence hidden!\n\n⌨️ <b>Type the sequence now.</b>\n🏆 First correct answer = <b>40 pts</b>",
-            parse_mode=constants.ParseMode.HTML)
-    except TelegramError:
-        pass
-    # Answer window: 20 seconds after the sequence is hidden.
-    await asyncio.sleep(20)
-    s = SESSIONS.get(chat.id)
-    if s and s.get("id") == sid and not s.get("finished"):
-        _cleanup(chat.id)
-        await bot.send_message(chat.id, f"⏰ <b>Memory round over!</b>\nThe sequence was <code>{seq}</code>.", parse_mode=constants.ParseMode.HTML)
+        await asyncio.sleep(5)
+        s = SESSIONS.get(chat_id)
+        if not s or s.get("id") != sid or s.get("finished"):
+            return
+
+        s["visible"] = False
+        s["deadline"] = asyncio.get_running_loop().time() + 20.0
+
+        try:
+            await msg.edit_text(
+                "❝ <b>🧠 MEMORY TEST</b> ❞ ❌\n\n"
+                "Sequence hidden!\n\n"
+                "⌨️ <b>Type the sequence now.</b>\n"
+                "🏆 First correct answer = <b>40 pts</b>\n"
+                "⏱️ <b>20 seconds</b>",
+                parse_mode=constants.ParseMode.HTML,
+            )
+        except TelegramError:
+            pass
+
+        await asyncio.sleep(20)
+        s = SESSIONS.get(chat_id)
+        if s and s.get("id") == sid and not s.get("finished"):
+            _cleanup(chat_id)
+            await bot.send_message(
+                chat_id,
+                f"⏰ <b>Memory round over!</b>\n"
+                f"The sequence was <code>{seq}</code>.",
+                parse_mode=constants.ParseMode.HTML,
+            )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        # Never let a background timer crash the bot process.
+        import logging
+        logging.getLogger(__name__).exception("Memory round task failed for chat %s", chat_id)
 
 async def memory_message(update, context):
     """Process a Memory Test answer immediately and atomically.
@@ -282,6 +326,15 @@ async def memory_message(update, context):
 
     s = SESSIONS.get(chat.id)
     if not s or s.get("type") != "memory" or s.get("visible"):
+        return False
+
+    # The answer window starts only after the sequence is hidden.
+    # Use a monotonic deadline so a late/queued message cannot win.
+    deadline = s.get("deadline")
+    if deadline is None:
+        return False
+    if asyncio.get_running_loop().time() > deadline:
+        _cleanup(chat.id)
         return False
 
     raw = message.text.strip()
