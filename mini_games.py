@@ -272,7 +272,7 @@ async def start_memory(bot, chat):
 
 
 async def _memory_round_flow(bot, chat_id, sid, seq, msg):
-    """Hide the sequence after 5s and close the round 20s later."""
+    """Hide the sequence after 5s and close the round 60s later."""
     try:
         await asyncio.sleep(5)
         s = SESSIONS.get(chat_id)
@@ -280,7 +280,7 @@ async def _memory_round_flow(bot, chat_id, sid, seq, msg):
             return
 
         s["visible"] = False
-        s["deadline"] = asyncio.get_running_loop().time() + 20.0
+        s["deadline"] = asyncio.get_running_loop().time() + 60.0
 
         try:
             await msg.edit_text(
@@ -288,13 +288,13 @@ async def _memory_round_flow(bot, chat_id, sid, seq, msg):
                 "Sequence hidden!\n\n"
                 "⌨️ <b>Type the sequence now.</b>\n"
                 "🏆 First correct answer = <b>40 pts</b>\n"
-                "⏱️ <b>20 seconds</b>",
+                "⏱️ <b>60 seconds</b>",
                 parse_mode=constants.ParseMode.HTML,
             )
         except TelegramError:
             pass
 
-        await asyncio.sleep(20)
+        await asyncio.sleep(60)
         s = SESSIONS.get(chat_id)
         if s and s.get("id") == sid and not s.get("finished"):
             _cleanup(chat_id)
@@ -390,8 +390,6 @@ async def extra_message(update, context):
         await code_message(update, context)
     elif s["type"] == "scramble":
         await scramble_message(update, context)
-    elif s["type"] == "memory":
-        await memory_message(update, context)
 
 
 def register_extra_game_handlers(app):
@@ -400,17 +398,6 @@ def register_extra_game_handlers(app):
     app.add_handler(CommandHandler("scramble", scramble_cmd))
     app.add_handler(CommandHandler("memory", memory_cmd))
     app.add_handler(CallbackQueryHandler(start_from_callback, pattern=r"^xgame:"))
-
-    # Memory answers get their own highest-priority handler.  This is deliberately
-    # ahead of WordGrid/Wordle/Spy handlers so an exact sequence is never swallowed
-    # by another game's generic text handler.
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
-            memory_message,
-        ),
-        group=-10,
-    )
 
     # Generic dispatcher remains for Code Breaker and Word Scramble.
     app.add_handler(
