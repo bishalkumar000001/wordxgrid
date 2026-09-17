@@ -76,49 +76,120 @@ async def start_code(bot, chat, digits=4):
     if old:
         await bot.send_message(chat.id, "⚠️ Ek game already chal raha hai. Pehle usko finish karo!")
         return
-    code = ''.join(random.sample(string.digits, digits))
+
+    # Wordle-style Code Breaker: repeated digits are allowed and every position
+    # receives its own tile-style clue after each guess.
+    code = ''.join(random.choice(string.digits) for _ in range(digits))
     sid = "code-" + uuid.uuid4().hex[:10]
-    SESSIONS[chat.id] = {"type":"code", "id":sid, "code":code, "attempts":0}
-    await bot.send_message(chat.id,
-        f"❝ <b>🔐 CODE BREAKER</b> ❞\n\n"
-        f"Secret code is <b>{digits} digits</b>. Digits repeat nahi honge.\n"
-        f"<blockquote>🎯 Guess type karo: <code>{'•' * digits}</code>\n"
-        f"💡 Har wrong guess ke baad clue milega.\n"
-        f"🏆 First crack = <b>50 pts</b></blockquote>\n\n"
-        f"<i>Example: {'1234'[:digits]}</i>", parse_mode=constants.ParseMode.HTML)
-    # 3 minutes
-    context = None
+    SESSIONS[chat.id] = {
+        "type": "code", "id": sid, "code": code, "attempts": 0,
+        "max_attempts": 10, "digits": digits, "started": asyncio.get_running_loop().time(),
+        "history": []
+    }
+
+    await bot.send_message(
+        chat.id,
+        f"❝ <b>🔐 CODE BREAKER — WORDLE MODE</b> ❞\n\n"
+        f"Crack the hidden <b>{digits}-digit</b> code. Digits <b>may repeat</b>.\n\n"
+        f"🟩 = correct digit + correct place\n"
+        f"🟨 = correct digit + wrong place\n"
+        f"⬛ = digit is not in the code\n\n"
+        f"🎯 You get <b>10 attempts</b>.\n"
+        f"🏆 Solve on the first attempt = <b>50 pts</b>\n\n"
+        f"Example: <code>{'1234'[:digits]}</code>",
+        parse_mode=constants.ParseMode.HTML
+    )
+
+
+def _code_feedback(guess, code):
+    """Return Wordle-style status for each digit, correctly handling repeats."""
+    result = ["⬛"] * len(code)
+    remaining = Counter()
+
+    # First pass: exact matches.
+    for i, (g, c) in enumerate(zip(guess, code)):
+        if g == c:
+            result[i] = "🟩"
+        else:
+            remaining[c] += 1
+
+    # Second pass: present elsewhere, with duplicate-safe accounting.
+    for i, g in enumerate(guess):
+        if result[i] == "🟩":
+            continue
+        if remaining[g] > 0:
+            result[i] = "🟨"
+            remaining[g] -= 1
+
+    return result
+
+
+def _code_board(session):
+    lines = []
+    for guess, marks in session.get("history", []):
+        lines.append(" ".join(f"{m}{d}" for d, m in zip(guess, marks)))
+    return "\n".join(lines)
+
 
 async def code_message(update, context):
     chat = update.effective_chat
     session = SESSIONS.get(chat.id)
     if not session or session["type"] != "code":
         return
-    text = update.message.text.strip()
+
+    text = update.message.text.strip().replace(" ", "")
     code = session["code"]
-    if not text.isdigit() or len(text) != len(code) or len(set(text)) != len(text):
+    if not text.isdigit() or len(text) != len(code):
         return
+
     session["attempts"] += 1
+    marks = _code_feedback(text, code)
+    session["history"].append((text, marks))
+
     if text == code:
         attempts = session["attempts"]
+        # 50, 45, 40 ... 15 points depending on attempts.
         points = max(15, 50 - (attempts - 1) * 5)
         sid = session["id"]
+        board = _code_board(session)
         _cleanup(chat.id)
         _score(update.effective_user, chat.id, sid, points, "__code_breaker__")
         await update.message.reply_text(
             f"🔓 <b>CODE CRACKED!</b>\n\n"
-            f"🎉 <a href='tg://user?id={update.effective_user.id}'>{_name(update.effective_user)}</a> found <code>{code}</code>\n"
-            f"🔢 Attempts: <b>{attempts}</b>\n🏆 Reward: <b>+{points} pts</b>", parse_mode=constants.ParseMode.HTML)
+            f"<code>{board}</code>\n\n"
+            f"🎉 <a href='tg://user?id={update.effective_user.id}'>{_name(update.effective_user)}</a> found the code!\n"
+            f"🔢 Attempts: <b>{attempts}/10</b>\n"
+            f"🏆 Reward: <b>+{points} pts</b>",
+            parse_mode=constants.ParseMode.HTML
+        )
         return
-    exact = sum(a == b for a,b in zip(text, code))
-    common = sum((Counter(text) & Counter(code)).values())
-    misplaced = common - exact
-    absent = len(code) - common
+
+    board = _code_board(session)
+    remaining = session["max_attempts"] - session["attempts"]
+    exact = marks.count("🟩")
+    misplaced = marks.count("🟨")
+    absent = marks.count("⬛")
+
+    if remaining <= 0:
+        sid = session["id"]
+        _cleanup(chat.id)
+        await update.message.reply_text(
+            f"💥 <b>CODE LOCKED!</b>\n\n"
+            f"<code>{board}</code>\n\n"
+            f"🔐 The code was <code>{code}</code>\n"
+            f"No points this round. Try again! 😈",
+            parse_mode=constants.ParseMode.HTML
+        )
+        return
+
     await update.message.reply_text(
-        f"🔐 <b>Clue</b> for <code>{text}</code>\n"
-        f"🟢 Right place: <b>{exact}</b>\n"
-        f"🟡 Right digit, wrong place: <b>{misplaced}</b>\n"
-        f"⚫ Not in code: <b>{absent}</b>", parse_mode=constants.ParseMode.HTML)
+        f"🔐 <b>CODE BREAKER</b>  •  Attempt <b>{session['attempts']}/10</b>\n\n"
+        f"<code>{board}</code>\n\n"
+        f"🟩 <b>{exact}</b> correct place  •  🟨 <b>{misplaced}</b> wrong place  •  ⬛ <b>{absent}</b> absent\n\n"
+        f"💡 <b>Position-by-position clues are shown above.</b>\n"
+        f"🎯 <b>{remaining}</b> attempts remaining.",
+        parse_mode=constants.ParseMode.HTML
+    )
 
 async def scramble_cmd(update, context):
     if update.effective_chat.type != "private":

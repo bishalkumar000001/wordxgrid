@@ -177,16 +177,6 @@ def get_game_scores(game_id: str):
 def get_period_leaderboard(period: str, group_id: int = None, limit: int = 20):
     db = _get_db()
 
-    # The main leaderboard intentionally contains only the original WordGrid +
-    # Wordle scores, plus the three newly-added mini games.  Paheli and
-    # Find-the-Spy keep their own scoring/leaderboards and must not leak into
-    # this leaderboard.
-    mini_game_labels = [
-        "__code_breaker__",
-        "__word_scramble__",
-        "__memory_test__",
-    ]
-
     match: dict = {"word": {"$ne": "__hint__"}}
 
     period_delta = {
@@ -203,28 +193,6 @@ def get_period_leaderboard(period: str, group_id: int = None, limit: int = 20):
 
     pipeline = [
         {"$match": match},
-        # A score can be identified as WordGrid by its game record, and as
-        # Wordle by its wordle_games record.  This also keeps old scores
-        # working without requiring a migration.
-        {"$lookup": {
-            "from": "games",
-            "localField": "game_id",
-            "foreignField": "game_id",
-            "as": "wordgrid_game",
-        }},
-        {"$lookup": {
-            "from": "wordle_games",
-            "localField": "game_id",
-            "foreignField": "game_id",
-            "as": "wordle_game",
-        }},
-        {"$match": {
-            "$or": [
-                {"word": {"$in": mini_game_labels}},
-                {"wordgrid_game.0": {"$exists": True}},
-                {"wordle_game.0": {"$exists": True}},
-            ]
-        }},
         {"$group": {
             "_id":          "$user_id",
             "total_points": {"$sum": "$points"},
