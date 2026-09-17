@@ -35,7 +35,7 @@ from paheli import register_paheli_handlers
 from wordle import register_wordle_handlers
 import wordle_db as wordle_db_mod
 from spy import register_spy_handlers
-from mini_games import register_extra_game_handlers
+from mini_games import register_extra_game_handlers, memory_message
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -638,6 +638,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat = update.effective_chat
     user = update.effective_user
+
+    # Memory Test answers are handled FIRST, before WordGrid/Paheli/Wordle.
+    # This is intentionally inside the main group handler too, so a numeric
+    # sequence can never be swallowed by another game's message handler or
+    # affected by handler registration order.
+    if chat and chat.type in ("group", "supergroup"):
+        handled = await memory_message(update, context)
+        if handled:
+            return
 
     if chat.type == "private":
         return
