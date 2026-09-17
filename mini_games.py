@@ -275,7 +275,10 @@ async def memory_message(update, context):
     # Accept common ways users type the sequence: spaces, hyphens, or line breaks.
     # Compare only the digits so a visually correct answer is not rejected because
     # of formatting.
-    answer = ''.join(ch for ch in (update.message.text or '') if ch.isdigit())
+    raw = (update.message.text or '').strip()
+    # Accept digits with spaces, hyphens, commas, or line breaks. Telegram can
+    # deliver Unicode digit characters, so normalize them to ASCII digits.
+    answer = ''.join(str(__import__("unicodedata").digit(ch)) for ch in raw if ch.isdigit())
     expected = s["seq"]
     if answer != expected:
         # Give useful feedback instead of silently ignoring a wrong attempt.
@@ -314,4 +317,4 @@ def register_extra_game_handlers(app):
     app.add_handler(CommandHandler("scramble", scramble_cmd))
     app.add_handler(CommandHandler("memory", memory_cmd))
     app.add_handler(CallbackQueryHandler(start_from_callback, pattern=r"^xgame:"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS, extra_message), group=3)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS, extra_message), group=-1)
