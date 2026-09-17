@@ -260,42 +260,72 @@ async def start_memory(bot, chat):
             parse_mode=constants.ParseMode.HTML)
     except TelegramError:
         pass
-    # timeout task
-    await asyncio.sleep(45)
+    # Answer window: 20 seconds after the sequence is hidden.
+    await asyncio.sleep(20)
     s = SESSIONS.get(chat.id)
-    if s and s.get("id") == sid:
+    if s and s.get("id") == sid and not s.get("finished"):
         _cleanup(chat.id)
         await bot.send_message(chat.id, f"⏰ <b>Memory round over!</b>\nThe sequence was <code>{seq}</code>.", parse_mode=constants.ParseMode.HTML)
 
 async def memory_message(update, context):
+    """Process a Memory Test answer immediately and atomically.
+
+    This handler is intentionally separate from the generic game dispatcher.
+    Other group-game handlers must never get a chance to consume a valid memory
+    answer first. The session is claimed before scoring so two simultaneous
+    correct answers cannot both win.
+    """
+    message = update.message
     chat = update.effective_chat
+    if message is None or not message.text or chat is None:
+        return False
+
     s = SESSIONS.get(chat.id)
-    if not s or s["type"] != "memory" or s.get("visible"):
-        return
-    # Accept common ways users type the sequence: spaces, hyphens, or line breaks.
-    # Compare only the digits so a visually correct answer is not rejected because
-    # of formatting.
-    raw = (update.message.text or '').strip()
-    # Accept digits with spaces, hyphens, commas, or line breaks. Telegram can
-    # deliver Unicode digit characters, so normalize them to ASCII digits.
-    answer = ''.join(str(__import__("unicodedata").digit(ch)) for ch in raw if ch.isdigit())
+    if not s or s.get("type") != "memory" or s.get("visible"):
+        return False
+
+    raw = message.text.strip()
+    # Keep only numeric characters and normalize Unicode digits to ASCII.
+    import unicodedata
+    digits = []
+    for ch in raw:
+        if ch.isdigit():
+            try:
+                digits.append(str(unicodedata.digit(ch)))
+            except (TypeError, ValueError):
+                pass
+    answer = "".join(digits)
     expected = s["seq"]
+
     if answer != expected:
-        # Give useful feedback instead of silently ignoring a wrong attempt.
-        await update.message.reply_text(
-            f"❌ <b>Not quite!</b> You entered <code>{answer or '—'}</code>.\n"
-            f"🔢 The sequence has <b>{len(expected)}</b> digits. Try again!",
-            parse_mode=constants.ParseMode.HTML
-        )
-        return
+        # Do not consume unrelated messages. Only answer if this looks like a
+        # sequence attempt (contains at least one digit).
+        if answer:
+            await message.reply_text(
+                f"❌ <b>Not quite!</b> You entered <code>{answer}</code>.\n"
+                f"🔢 The sequence has <b>{len(expected)}</b> digits. Try again!",
+                parse_mode=constants.ParseMode.HTML,
+            )
+            return True
+        return False
+
+    # Claim the round BEFORE doing database work / network I/O.
+    # This prevents the timeout task or another simultaneous correct answer
+    # from closing/scoring the same round first.
     sid = s["id"]
     seq = s["seq"]
+    s["winner_id"] = update.effective_user.id
+    s["finished"] = True
     _cleanup(chat.id)
+
     _score(update.effective_user, chat.id, sid, 40, "__memory_test__")
-    await update.message.reply_text(
+    await message.reply_text(
         f"🧠 <b>MEMORY MASTER!</b>\n\n"
         f"🎉 <a href='tg://user?id={update.effective_user.id}'>{_name(update.effective_user)}</a> remembered <code>{seq}</code>\n"
-        f"🏆 <b>+40 pts</b>", parse_mode=constants.ParseMode.HTML)
+        f"🏆 <b>+40 pts</b>",
+        parse_mode=constants.ParseMode.HTML,
+    )
+    return True
 
 async def extra_message(update, context):
     # Each game gets one pass through the same group message handler.
@@ -317,4 +347,23 @@ def register_extra_game_handlers(app):
     app.add_handler(CommandHandler("scramble", scramble_cmd))
     app.add_handler(CommandHandler("memory", memory_cmd))
     app.add_handler(CallbackQueryHandler(start_from_callback, pattern=r"^xgame:"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS, extra_message), group=-1)
+
+    # Memory answers get their own highest-priority handler.  This is deliberately
+    # ahead of WordGrid/Wordle/Spy handlers so an exact sequence is never swallowed
+    # by another game's generic text handler.
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
+            memory_message,
+        ),
+        group=-10,
+    )
+
+    # Generic dispatcher remains for Code Breaker and Word Scramble.
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
+            extra_message,
+        ),
+        group=-1,
+    )
