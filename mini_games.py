@@ -272,8 +272,18 @@ async def memory_message(update, context):
     s = SESSIONS.get(chat.id)
     if not s or s["type"] != "memory" or s.get("visible"):
         return
-    answer = ''.join(update.message.text.split())
-    if not answer.isdigit() or answer != s["seq"]:
+    # Accept common ways users type the sequence: spaces, hyphens, or line breaks.
+    # Compare only the digits so a visually correct answer is not rejected because
+    # of formatting.
+    answer = ''.join(ch for ch in (update.message.text or '') if ch.isdigit())
+    expected = s["seq"]
+    if answer != expected:
+        # Give useful feedback instead of silently ignoring a wrong attempt.
+        await update.message.reply_text(
+            f"❌ <b>Not quite!</b> You entered <code>{answer or '—'}</code>.\n"
+            f"🔢 The sequence has <b>{len(expected)}</b> digits. Try again!",
+            parse_mode=constants.ParseMode.HTML
+        )
         return
     sid = s["id"]
     seq = s["seq"]
