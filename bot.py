@@ -35,6 +35,7 @@ from paheli import register_paheli_handlers
 from wordle import register_wordle_handlers
 import wordle_db as wordle_db_mod
 from spy import register_spy_handlers
+from mini_games import register_extra_game_handlers
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -1275,10 +1276,11 @@ def main():
 
     # ── Find the Spy handlers ──────────────────────────────────────────────────
     register_spy_handlers(app)
+    register_extra_game_handlers(app)
 
     app.add_error_handler(error_handler)
 
-    logger.info("VelocityBots starting… (WordGrid + Paheli + Wordle + Find the Spy)")
+    logger.info("VelocityBots starting… (WordGrid + Paheli + Wordle + Find the Spy + Extra Games)")
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

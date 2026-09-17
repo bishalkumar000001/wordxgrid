@@ -310,23 +310,39 @@ async def cmd_wend(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_wlb(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat     = update.effective_chat
-    scope_id = chat.id if chat.type in ("group", "supergroup") else None
-    rows     = wordle_db.get_wordle_leaderboard(group_id=scope_id, limit=10)
+    """Show the same main leaderboard used by WordGrid /lb.
 
+    It includes WordGrid, Wordle and the three new mini-games only.
+    Paheli and Find-the-Spy remain outside this leaderboard.
+    """
+    chat = update.effective_chat
+    if chat.type in ("group", "supergroup"):
+        scope = "chat"
+        group_id = chat.id
+        scope_label = chat.title or "This Chat"
+    else:
+        scope = "global"
+        group_id = None
+        scope_label = "Global"
+
+    rows = db.get_period_leaderboard("all", group_id=group_id, limit=10)
     if not rows:
-        await update.message.reply_text("❝ <b>WORDLE · LEADERBOARD</b> ❞\n\nℹ️ No scores have been recorded yet. Start playing to claim your place.")
+        await update.message.reply_text(
+            f"📊 No scores yet for <b>{html.escape(scope_label)} — All Time</b>.",
+            parse_mode=constants.ParseMode.HTML,
+        )
         return
 
-    scope_label = "📍 This Chat" if scope_id else "🌍 Global"
-    lines = [f"❝ <b>WORDLE · LEADERBOARD</b> ❞\n", f"📍 <b>{scope_label}</b>\n"]
-    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    lines = [
+        "❝ <b>WordGrid — Leaderboard</b> ❞",
+        f"📍 <b>{html.escape(scope_label)}</b> | All Time",
+        "",
+    ]
+    medals = ["🥇", "🥈", "🥉"]
     for i, row in enumerate(rows, 1):
-        name = row.get("first_name") or f"User{row['_id']}"
-        pts  = row.get("total_points", 0)
-        won  = row.get("games_won", 0)
-        rank = medals.get(i, f"#{i}")
-        lines.append(f"{rank} <b>{html.escape(name)}</b> — {pts} pts ({won} wins)")
+        medal = medals[i - 1] if i <= 3 else f"<b>{i}.</b>"
+        name = html.escape((row.get("first_name") or row.get("username") or "Unknown").strip())
+        lines.append(f"{medal} {name} — <b>{row.get('total_points', 0)}</b> pts")
 
     await update.message.reply_text(
         "\n".join(lines),

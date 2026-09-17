@@ -225,6 +225,13 @@ async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("Spy",
                                  callback_data=f"game:spy:{chat.id}"),
         ],
+        [
+            InlineKeyboardButton("🔐 Code Breaker", callback_data=f"xgame:code:{chat.id}"),
+            InlineKeyboardButton("🔤 Scramble", callback_data=f"xgame:scramble:{chat.id}"),
+        ],
+        [
+            InlineKeyboardButton("🧠 Memory Test", callback_data=f"xgame:memory:{chat.id}"),
+        ],
     ])
 
     await update.message.reply_text(
