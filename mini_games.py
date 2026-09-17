@@ -261,7 +261,7 @@ async def start_memory(bot, chat):
     msg = await bot.send_message(
         chat.id,
         f"❝ <b>🧠 MEMORY TEST</b> ❞\n\n"
-        f"Remember this sequence for <b>5 seconds</b>:\n\n"
+        f"Remember this sequence for <b>4 seconds</b>:\n\n"
         f"<code>{' '.join(seq)}</code>\n\n"
         f"👀 Focus! Then type it back exactly.",
         parse_mode=constants.ParseMode.HTML,
@@ -274,7 +274,7 @@ async def start_memory(bot, chat):
 async def _memory_round_flow(bot, chat_id, sid, seq, msg):
     """Hide the sequence after 5s and close the round 60s later."""
     try:
-        await asyncio.sleep(5)
+        await asyncio.sleep(4)
         s = SESSIONS.get(chat_id)
         if not s or s.get("id") != sid or s.get("finished"):
             return
