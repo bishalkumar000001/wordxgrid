@@ -377,18 +377,37 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
         # Record explicit DM /start for Find the Spy join validation.
         spy_db.mark_private_start(user.id)
+        # /start keyboard: Add Me → Support Group → Support Channel
+        try:
+            me = await context.bot.get_me()
+            add_me_url = f"https://t.me/{me.username}?startgroup=true" if me.username else ""
+        except TelegramError:
+            add_me_url = ""
+
         rows = []
+        if add_me_url:
+            rows.append([InlineKeyboardButton("➕ Add Me to Group", url=add_me_url)])
+        if config.SUPPORT_GROUP:
+            rows.append([InlineKeyboardButton("👥 Support Group", url=config.SUPPORT_GROUP)])
         if config.SUPPORT_CHANNEL:
-            rows.append([InlineKeyboardButton("🌐 Support Group", url=config.SUPPORT_CHANNEL)])
+            rows.append([InlineKeyboardButton("📢 Support Channel", url=config.SUPPORT_CHANNEL)])
+
         await update.message.reply_text(
-            f"❝ <b>WELCOME TO VELOCITYBOTS</b> ❞\n\n"
-            f"<blockquote>👋 Hello <b>{user.first_name}</b>!\n\n"
-            "🎮 Your premium game lounge is ready. Add me to a group and choose your challenge.\n"
-            "• /game — Choose your game (Word Grid, Paheli or Wordle)\n"
-            "• /new — Start a Word Grid game\n"
-            "• /paheli — Start a riddle game\n"
-            "• /wordle — Start a Wordle game (5-letter)\n"
-            "• /help — All commands\n\n✦ <b>Play smart. Have fun.</b></blockquote>",
+            f"🎮 <b>Welcome to VelocityBots! {html.escape(user.first_name or '')}</b>\n\n"
+            "Ready for some quick challenges? ⚡\n"
+            "Test your skills, challenge your friends, earn points, and climb the leaderboard! 🏆\n\n"
+            "From word challenges and tricky puzzles to memory tests and finding the hidden spy — "
+            "<b>there's always a new challenge waiting for you.</b> 🧠🔥\n\n"
+            "🎯 <b>Available Games</b>\n\n"
+            "🧩 <code>/new</code> — Build &amp; solve the WordGrid\n"
+            "🟩 <code>/wordle</code> — Guess the hidden word\n"
+            "🧠 <code>/paheli</code> — Solve the riddle\n"
+            "🔐 <code>/codebreaker</code> — Crack the secret code\n"
+            "🔤 <code>/scramble</code> — Unscramble the word\n"
+            "🧠 <code>/memory</code> — Test your memory\n"
+            "🕵️ <code>/spy</code> — Find the hidden spy\n\n"
+            "🏆 <b>Play • Score • Compete • Dominate</b>\n\n"
+            "🚀 <b>Choose a game and let the challenge begin!</b>",
             parse_mode=constants.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(rows) if rows else None,
         )

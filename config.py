@@ -6,6 +6,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN       = os.environ.get("BOT_TOKEN", "")
 OWNER_ID        = int(os.environ.get("OWNER_ID", "0"))
 LOG_GROUP_ID    = int(os.environ.get("LOG_GROUP_ID", "0"))
+SUPPORT_GROUP   = os.environ.get("SUPPORT_GROUP", "")
 SUPPORT_CHANNEL = os.environ.get("SUPPORT_CHANNEL", "")
 
 # Comma-separated Telegram user IDs that can use /broadcast
