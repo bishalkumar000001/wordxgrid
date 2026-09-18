@@ -185,9 +185,14 @@ async def cmd_spy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat.type == "private":
         await update.effective_message.reply_text("❝ <b>FIND THE SPY</b> ❞\n\n🕵️ This game is designed for groups. Add me to a group and use /spy.")
         return
-    if (spy_db.get_active_game(chat.id) or db.get_active_game(chat.id) or
-            wordle_db.get_active_wordle(chat.id) or paheli_db.get_active_paheli(chat.id)):
-        await update.effective_message.reply_text("❝ <b>GAME CENTER</b> ❞\n\n⚠️ Another game is already running in this group. Finish it before starting a new one.")
+    # Find the Spy is independent from the other games. Multiple different
+    # games may run simultaneously in the same group. Only one Spy round is
+    # allowed at a time.
+    if spy_db.get_active_game(chat.id):
+        await update.effective_message.reply_text(
+            "❝ <b>FIND THE SPY</b> ❞\n\n⚠️ A Find the Spy round is already running in this group. Finish it before starting another one.",
+            parse_mode=constants.ParseMode.HTML,
+        )
         return
     game_id = str(uuid.uuid4())
     spy_db.create_game(game_id, chat.id, user.id, random.choice(WORDS))

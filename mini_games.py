@@ -11,7 +11,18 @@ from telegram.error import TelegramError
 import database as db
 from words import WORDS_BY_LENGTH
 
-SESSIONS = {}  # chat_id -> session; active rounds intentionally reset on process restart
+# One independent session per game type and group. Different games can run
+# simultaneously in the same group (e.g. Code Breaker + Scramble + Memory).
+SESSIONS = {}  # (chat_id, game_type) -> session
+
+def _get_session(chat_id, game_type):
+    return SESSIONS.get((chat_id, game_type))
+
+def _set_session(chat_id, game_type, session):
+    SESSIONS[(chat_id, game_type)] = session
+
+def _cleanup(chat_id, game_type):
+    return SESSIONS.pop((chat_id, game_type), None)
 
 
 def _name(user):
@@ -22,9 +33,6 @@ def _score(user, chat_id, game_id, points, label):
     db.upsert_user(user.id, user.username or "", user.first_name or "", user.last_name or "")
     db.add_score(user.id, chat_id, game_id, label, points)
 
-
-def _cleanup(chat_id):
-    return SESSIONS.pop(chat_id, None)
 
 
 def _menu(chat_id):
@@ -72,20 +80,20 @@ async def code_cmd(update, context):
     await start_code(context.bot, update.effective_chat, digits)
 
 async def start_code(bot, chat, digits=4):
-    old = SESSIONS.get(chat.id)
+    old = _get_session(chat.id, "code")
     if old:
-        await bot.send_message(chat.id, "⚠️ Ek game already chal raha hai. Pehle usko finish karo!")
+        await bot.send_message(chat.id, "⚠️ A Code Breaker round is already running here. Finish it before starting another Code Breaker round!")
         return
 
     # Wordle-style Code Breaker: repeated digits are allowed and every position
     # receives its own tile-style clue after each guess.
     code = ''.join(random.choice(string.digits) for _ in range(digits))
     sid = "code-" + uuid.uuid4().hex[:10]
-    SESSIONS[chat.id] = {
+    _set_session(chat.id, "code", {
         "type": "code", "id": sid, "code": code, "attempts": 0,
         "max_attempts": 10, "digits": digits, "started": asyncio.get_running_loop().time(),
         "history": []
-    }
+    })
 
     await bot.send_message(
         chat.id,
@@ -133,8 +141,8 @@ def _code_board(session):
 
 async def code_message(update, context):
     chat = update.effective_chat
-    session = SESSIONS.get(chat.id)
-    if not session or session["type"] != "code":
+    session = _get_session(chat.id, "code")
+    if not session:
         return
 
     text = update.message.text.strip().replace(" ", "")
@@ -152,7 +160,7 @@ async def code_message(update, context):
         points = max(15, 50 - (attempts - 1) * 5)
         sid = session["id"]
         board = _code_board(session)
-        _cleanup(chat.id)
+        _cleanup(chat.id, "code")
         _score(update.effective_user, chat.id, sid, points, "__code_breaker__")
         await update.message.reply_text(
             f"🔓 <b>CODE CRACKED!</b>\n\n"
@@ -172,7 +180,7 @@ async def code_message(update, context):
 
     if remaining <= 0:
         sid = session["id"]
-        _cleanup(chat.id)
+        _cleanup(chat.id, "code")
         await update.message.reply_text(
             f"💥 <b>CODE LOCKED!</b>\n\n"
             f"<code>{board}</code>\n\n"
@@ -196,8 +204,8 @@ async def scramble_cmd(update, context):
         await start_scramble(context.bot, update.effective_chat)
 
 async def start_scramble(bot, chat):
-    if chat.id in SESSIONS:
-        await bot.send_message(chat.id, "⚠️ Ek game already chal raha hai. Finish that round first!")
+    if _get_session(chat.id, "scramble"):
+        await bot.send_message(chat.id, "⚠️ A Word Scramble round is already running here. Finish it before starting another Scramble round!")
         return
     lengths = [4,5,6,7,8]
     length = random.choice(lengths)
@@ -209,7 +217,7 @@ async def start_scramble(bot, chat):
         if scrambled != word:
             break
     sid = "scramble-" + uuid.uuid4().hex[:10]
-    SESSIONS[chat.id] = {"type":"scramble", "id":sid, "word":word}
+    _set_session(chat.id, "scramble", {"type":"scramble", "id":sid, "word":word})
     await bot.send_message(chat.id,
         f"❝ <b>🔤 WORD SCRAMBLE</b> ❞\n\n"
         f"<blockquote>🧩 Unscramble this:\n\n<b>{' '.join(scrambled)}</b>\n\n"
@@ -217,15 +225,15 @@ async def start_scramble(bot, chat):
 
 async def scramble_message(update, context):
     chat = update.effective_chat
-    s = SESSIONS.get(chat.id)
-    if not s or s["type"] != "scramble":
+    s = _get_session(chat.id, "scramble")
+    if not s:
         return
     answer = update.message.text.strip().upper().replace(" ", "")
     if answer != s["word"]:
         return
     sid = s["id"]
     word = s["word"]
-    _cleanup(chat.id)
+    _cleanup(chat.id, "scramble")
     _score(update.effective_user, chat.id, sid, 30, "__word_scramble__")
     await update.message.reply_text(
         f"🎯 <b>SCRAMBLED!</b>\n\n🏆 <a href='tg://user?id={update.effective_user.id}'>{_name(update.effective_user)}</a> got <b>{word}</b> first!\n💰 <b>+30 pts</b>",
@@ -242,21 +250,21 @@ async def start_memory(bot, chat):
     The previous implementation did that, which blocked update processing and
     caused users' answers to be delivered only after the round had timed out.
     """
-    if chat.id in SESSIONS:
-        await bot.send_message(chat.id, "⚠️ Ek game already chal raha hai. Finish that round first!")
+    if _get_session(chat.id, "memory"):
+        await bot.send_message(chat.id, "⚠️ A Memory Test round is already running here. Finish it before starting another Memory Test!")
         return
 
     length = random.randint(6, 9)
     seq = ''.join(random.choice(string.digits) for _ in range(length))
     sid = "memory-" + uuid.uuid4().hex[:10]
-    SESSIONS[chat.id] = {
+    _set_session(chat.id, "memory", {
         "type": "memory",
         "id": sid,
         "seq": seq,
         "visible": True,
         "finished": False,
         "deadline": None,
-    }
+    })
 
     msg = await bot.send_message(
         chat.id,
@@ -275,7 +283,7 @@ async def _memory_round_flow(bot, chat_id, sid, seq, msg):
     """Hide the sequence after 5s and close the round 60s later."""
     try:
         await asyncio.sleep(3)
-        s = SESSIONS.get(chat_id)
+        s = _get_session(chat_id, "memory")
         if not s or s.get("id") != sid or s.get("finished"):
             return
 
@@ -295,9 +303,9 @@ async def _memory_round_flow(bot, chat_id, sid, seq, msg):
             pass
 
         await asyncio.sleep(60)
-        s = SESSIONS.get(chat_id)
+        s = _get_session(chat_id, "memory")
         if s and s.get("id") == sid and not s.get("finished"):
-            _cleanup(chat_id)
+            _cleanup(chat_id, "memory")
             await bot.send_message(
                 chat_id,
                 f"⏰ <b>Memory round over!</b>\n"
@@ -324,8 +332,8 @@ async def memory_message(update, context):
     if message is None or not message.text or chat is None:
         return False
 
-    s = SESSIONS.get(chat.id)
-    if not s or s.get("type") != "memory" or s.get("visible"):
+    s = _get_session(chat.id, "memory")
+    if not s or s.get("visible"):
         return False
 
     # The answer window starts only after the sequence is hidden.
@@ -334,7 +342,7 @@ async def memory_message(update, context):
     if deadline is None:
         return False
     if asyncio.get_running_loop().time() > deadline:
-        _cleanup(chat.id)
+        _cleanup(chat.id, "memory")
         return False
 
     raw = message.text.strip()
@@ -369,7 +377,7 @@ async def memory_message(update, context):
     seq = s["seq"]
     s["winner_id"] = update.effective_user.id
     s["finished"] = True
-    _cleanup(chat.id)
+    _cleanup(chat.id, "memory")
 
     _score(update.effective_user, chat.id, sid, 40, "__memory_test__")
     await message.reply_text(
@@ -383,12 +391,14 @@ async def memory_message(update, context):
 async def extra_message(update, context):
     # Each game gets one pass through the same group message handler.
     chat = update.effective_chat
-    s = SESSIONS.get(chat.id)
-    if not s or update.message is None or not update.message.text:
+    if update.message is None or not update.message.text:
         return
-    if s["type"] == "code":
+
+    # Each game has its own session. A group can therefore run Code Breaker,
+    # Word Scramble and Memory Test at the same time.
+    if _get_session(chat.id, "code"):
         await code_message(update, context)
-    elif s["type"] == "scramble":
+    if _get_session(chat.id, "scramble"):
         await scramble_message(update, context)
 
 
