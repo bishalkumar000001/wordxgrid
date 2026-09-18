@@ -15,7 +15,7 @@ from telegram import (
 )
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, ContextTypes,
-    filters, CallbackQueryHandler, ChatMemberHandler,
+    filters, CallbackQueryHandler, ChatMemberHandler, Defaults,
 )
 from telegram.error import TelegramError
 
@@ -372,50 +372,52 @@ async def game_timeout(context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    chat = update.effective_chat
     db.upsert_user(user.id, user.username, user.first_name, user.last_name or "")
 
-    if update.effective_chat.type == "private":
-        # Record explicit DM /start for Find the Spy join validation.
+    # Record explicit DM /start for Find the Spy join validation.
+    if chat.type == "private":
         spy_db.mark_private_start(user.id)
-        # /start keyboard: Add Me → Support Group → Support Channel
+
+    # Keep /start consistent in private chats and groups. In groups, the
+    # Add Me button is omitted because the bot is already present.
+    rows = []
+    if chat.type == "private":
         try:
             me = await context.bot.get_me()
-            add_me_url = f"https://t.me/{me.username}?startgroup=true" if me.username else ""
+            if me.username:
+                rows.append([InlineKeyboardButton(
+                    "➕ Add Me to Group", url=f"https://t.me/{me.username}?startgroup=true"
+                )])
         except TelegramError:
-            add_me_url = ""
+            pass
+    if config.SUPPORT_GROUP:
+        rows.append([InlineKeyboardButton("👥 Support Group", url=config.SUPPORT_GROUP)])
+    if config.SUPPORT_CHANNEL:
+        rows.append([InlineKeyboardButton("📢 Support Channel", url=config.SUPPORT_CHANNEL)])
 
-        rows = []
-        if add_me_url:
-            rows.append([InlineKeyboardButton("➕ Add Me to Group", url=add_me_url)])
-        if config.SUPPORT_GROUP:
-            rows.append([InlineKeyboardButton("👥 Support Group", url=config.SUPPORT_GROUP)])
-        if config.SUPPORT_CHANNEL:
-            rows.append([InlineKeyboardButton("📢 Support Channel", url=config.SUPPORT_CHANNEL)])
-
-        await update.message.reply_text(
-            f"🎮 <b>Welcome to VelocityBots! {html.escape(user.first_name or '')}</b>\n\n"
-            "Ready for some quick challenges? ⚡\n"
-            "Test your skills, challenge your friends, earn points, and climb the leaderboard! 🏆\n\n"
-            "From word challenges and tricky puzzles to memory tests and finding the hidden spy — "
-            "<b>there's always a new challenge waiting for you.</b> 🧠🔥\n\n"
-            "🎯 <b>Available Games</b>\n\n"
-            "🧩 <code>/new</code> — Build &amp; solve the WordGrid\n"
-            "🟩 <code>/wordle</code> — Guess the hidden word\n"
-            "🧠 <code>/paheli</code> — Solve the riddle\n"
-            "🔐 <code>/codebreaker</code> — Crack the secret code\n"
-            "🔤 <code>/scramble</code> — Unscramble the word\n"
-            "🧠 <code>/memory</code> — Test your memory\n"
-            "🕵️ <code>/spy</code> — Find the hidden spy\n\n"
-            "🏆 <b>Play • Score • Compete • Dominate</b>\n\n"
-            "🚀 <b>Choose a game and let the challenge begin!</b>",
-            parse_mode=constants.ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(rows) if rows else None,
-        )
-    else:
-        await update.message.reply_text(
-            "❝ <b>VELOCITYBOTS IS READY</b> ❞\n\n"
-            "<blockquote>🎮 Choose a game with /game\n✦ /new — Word Grid\n✦ /paheli — Desi Paheli\n✦ /wordle — Wordle</blockquote>",
-        )
+    mention = f"<a href=\"tg://user?id={user.id}\">{html.escape(user.first_name or 'there')}</a>"
+    text = (
+        f"🎮 <b>Welcome to VelocityBots!</b> {mention}\n\n"
+        "Ready for some quick challenges? ⚡\n"
+        "Test your skills, challenge your friends, earn points, and climb the leaderboard! 🏆\n\n"
+        "From word challenges and tricky puzzles to memory tests and finding the hidden spy — "
+        "<b>there's always a new challenge waiting for you.</b> 🧠🔥\n\n"
+        "🎯 <b>Available Games</b>\n\n"
+        "🧩 <code>/new</code> — Build &amp; solve the WordGrid\n"
+        "🟩 <code>/wordle</code> — Guess the hidden word\n"
+        "🧠 <code>/paheli</code> — Solve the riddle\n"
+        "🔐 <code>/codebreaker</code> — Crack the secret code\n"
+        "🔤 <code>/scramble</code> — Unscramble the word\n"
+        "🧠 <code>/memory</code> — Test your memory\n"
+        "🕵️ <code>/spy</code> — Find the hidden spy\n\n"
+        "🏆 <b>Play • Score • Compete • Dominate</b>\n\n"
+        "🚀 <b>Choose a game and let the challenge begin!</b>"
+    )
+    await update.message.reply_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(rows) if rows else None,
+    )
 
 
 # ─── /help ────────────────────────────────────────────────────────────────────
@@ -1270,6 +1272,7 @@ def main():
     app = (
         Application.builder()
         .token(config.BOT_TOKEN)
+        .defaults(Defaults(parse_mode=constants.ParseMode.HTML))
         .build()
     )
 
