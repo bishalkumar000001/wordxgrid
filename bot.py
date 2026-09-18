@@ -17,7 +17,7 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, ContextTypes,
     filters, CallbackQueryHandler, ChatMemberHandler, Defaults,
 )
-from telegram.error import TelegramError
+from telegram.error import TelegramError, RetryAfter
 
 import config
 import database as db
@@ -1125,32 +1125,44 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /broadcast ───────────────────────────────────────────────────────────────
 
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Broadcast a safe HTML-escaped text message to all active groups.
+
+    Handles Telegram rate limits with retries and removes inactive chats when
+    Telegram reports that the bot is no longer present.
+    """
     user = update.effective_user
 
     if not is_sudo(user.id):
         await update.message.reply_text("❌ You are not authorised to use this command.")
         return
 
+    reply_msg = update.message.reply_to_message
     broadcast_text = None
-    reply_msg      = update.message.reply_to_message
 
     if context.args:
         broadcast_text = " ".join(context.args)
-    elif reply_msg and reply_msg.text:
-        broadcast_text = reply_msg.text
-    else:
+    elif reply_msg:
+        # Support both normal text replies and media captions.
+        broadcast_text = reply_msg.text or reply_msg.caption
+
+    if not broadcast_text:
         await update.message.reply_text(
-            "⚠️ Usage:\n"
+            "⚠️ <b>How to use /broadcast</b>\n\n"
             "• <code>/broadcast Your message here</code>\n"
-            "• Or reply to a message with <code>/broadcast</code>",
+            "• Or reply to a text/photo/video message with <code>/broadcast</code>",
             parse_mode=constants.ParseMode.HTML,
         )
         return
 
     groups = db.get_all_groups()
     if not groups:
-        await update.message.reply_text("⚠️ No groups found in database yet.")
+        await update.message.reply_text("⚠️ No active groups found in the database yet.")
         return
+
+    # User-supplied broadcast text MUST be escaped because the bot uses HTML
+    # parse mode globally. This prevents raw <b>, <blockquote>, <code>, etc.
+    # from being interpreted as Telegram HTML and causing BadRequest errors.
+    safe_text = html.escape(broadcast_text, quote=False)
 
     status_msg = await update.message.reply_text(
         f"📡 Broadcasting to <b>{len(groups)}</b> groups…",
@@ -1163,37 +1175,67 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for group in groups:
         chat_id = group["chat_id"]
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"📢 <b>Broadcast Message</b>\n\n{broadcast_text}",
-                parse_mode=constants.ParseMode.HTML,
-            )
-            sent += 1
-        except TelegramError as e:
-            err = str(e).lower()
-            if "bot was kicked" in err or "chat not found" in err or "blocked" in err:
-                db.remove_group(chat_id)
-                blocked += 1
-            else:
+        delivered = False
+
+        # Telegram can temporarily reject bursts with FLOOD_WAIT/RetryAfter.
+        # Retry the same group instead of counting it as a permanent failure.
+        for attempt in range(3):
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"📢 <b>Broadcast Message</b>\n\n{safe_text}",
+                    parse_mode=constants.ParseMode.HTML,
+                )
+                sent += 1
+                delivered = True
+                break
+
+            except RetryAfter as e:
+                wait = min(max(int(e.retry_after), 1), 30)
+                logger.warning(
+                    "Broadcast rate limited for %s; retrying in %ss (attempt %s/3)",
+                    chat_id, wait, attempt + 1,
+                )
+                await asyncio.sleep(wait)
+
+            except TelegramError as e:
+                err = str(e).lower()
+                if any(x in err for x in (
+                    "bot was kicked", "chat not found", "blocked by the user",
+                    "bot is not a member", "have no rights to send a message",
+                )):
+                    db.remove_group(chat_id)
+                    blocked += 1
+                else:
+                    failed += 1
+                logger.warning("Broadcast failed for %s: %s", chat_id, e)
+                break
+
+            except Exception as e:
                 failed += 1
-            logger.warning("Broadcast failed for %s: %s", chat_id, e)
+                logger.exception("Unexpected broadcast failure for %s: %s", chat_id, e)
+                break
 
-        await asyncio.sleep(0.05)
+        if not delivered and attempt == 2:
+            failed += 1
 
+        # A small gap prevents avoidable flood-control errors between groups.
+        await asyncio.sleep(0.15)
+
+    total = len(groups)
     await status_msg.edit_text(
         f"📡 <b>Broadcast Complete!</b>\n\n"
         f"✅ Sent: <b>{sent}</b>\n"
-        f"🚫 Blocked/Left: <b>{blocked}</b>\n"
+        f"🚫 Removed/Unavailable: <b>{blocked}</b>\n"
         f"❌ Failed: <b>{failed}</b>\n"
-        f"📊 Total: <b>{len(groups)}</b> groups",
+        f"📊 Total: <b>{total}</b> groups",
         parse_mode=constants.ParseMode.HTML,
     )
 
     await log_to_group(
         context.application,
-        f"📡 Broadcast by <a href='tg://user?id={user.id}'>{display_name(user)}</a>\n"
-        f"✅ {sent} sent · 🚫 {blocked} blocked · ❌ {failed} failed",
+        f"📡 Broadcast by <a href='tg://user?id={user.id}'>{html.escape(display_name(user))}</a>\n"
+        f"✅ {sent} sent · 🚫 {blocked} unavailable · ❌ {failed} failed",
     )
 
 
