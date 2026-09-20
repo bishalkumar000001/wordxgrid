@@ -67,7 +67,7 @@ async def start_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if kind == "code":
         await start_code(context.bot, q.message.chat, digits=4)
     elif kind == "scramble":
-        await start_scramble(context.bot, q.message.chat)
+        await start_scramble(context, q.message.chat)
     else:
         await start_memory(context.bot, q.message.chat)
 
@@ -201,9 +201,10 @@ async def code_message(update, context):
 
 async def scramble_cmd(update, context):
     if update.effective_chat.type != "private":
-        await start_scramble(context.bot, update.effective_chat)
+        await start_scramble(context, update.effective_chat)
 
-async def start_scramble(bot, chat):
+async def start_scramble(context, chat):
+    bot = context.bot
     if _get_session(chat.id, "scramble"):
         await bot.send_message(chat.id, "⚠️ A Word Scramble round is already running here. Finish it before starting another Scramble round!")
         return
@@ -232,19 +233,29 @@ async def start_scramble(bot, chat):
         parse_mode=constants.ParseMode.HTML,
     )
 
-    # End the round automatically after exactly 2 minutes.
+    # Schedule the timeout through PTB's JobQueue.
     session = _get_session(chat.id, "scramble")
-    if session:
-        session["task"] = asyncio.create_task(_scramble_timeout(bot, chat.id, sid, word))
+    if session and context.job_queue is not None:
+        session["job"] = context.job_queue.run_once(
+            _scramble_timeout_job,
+            120,
+            data={"chat_id": chat.id, "sid": sid, "word": word},
+            name=f"scramble:{chat.id}:{sid}",
+        )
 
-async def _scramble_timeout(bot, chat_id, sid, word):
+async def _scramble_timeout_job(context: ContextTypes.DEFAULT_TYPE):
+    data = context.job.data
+    chat_id = data["chat_id"]
+    sid = data["sid"]
+    word = data["word"]
+
+    session = _get_session(chat_id, "scramble")
+    if not session or session.get("id") != sid:
+        return
+
+    _cleanup(chat_id, "scramble")
     try:
-        await asyncio.sleep(120)
-        session = _get_session(chat_id, "scramble")
-        if not session or session.get("id") != sid:
-            return
-        _cleanup(chat_id, "scramble")
-        await bot.send_message(
+        await context.bot.send_message(
             chat_id,
             f"⏰ <b>SCRAMBLE ENDED!</b>\n\n"
             f"😔 Time's up! Nobody solved the scramble.\n"
@@ -252,10 +263,8 @@ async def _scramble_timeout(bot, chat_id, sid, word):
             f"🎮 Use <code>/scramble</code> to play again.",
             parse_mode=constants.ParseMode.HTML,
         )
-    except asyncio.CancelledError:
-        return
     except TelegramError:
-        return
+        pass
 
 async def scramble_message(update, context):
     chat = update.effective_chat
@@ -267,9 +276,12 @@ async def scramble_message(update, context):
         return
     sid = s["id"]
     word = s["word"]
-    task = s.get("task")
-    if task and not task.done():
-        task.cancel()
+    job = s.get("job")
+    if job:
+        try:
+            job.schedule_removal()
+        except Exception:
+            pass
     _cleanup(chat.id, "scramble")
     _score(update.effective_user, chat.id, sid, 30, "__word_scramble__")
     await update.message.reply_text(
