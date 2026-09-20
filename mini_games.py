@@ -217,13 +217,41 @@ async def start_scramble(bot, chat):
         if scrambled != word:
             break
     sid = "scramble-" + uuid.uuid4().hex[:10]
-    _set_session(chat.id, "scramble", {"type":"scramble", "id":sid, "word":word})
+    session = {"type":"scramble", "id":sid, "word":word, "deadline":asyncio.get_running_loop().time() + 120.0}
+    _set_session(chat.id, "scramble", session)
     await bot.send_message(chat.id,
         f"❝ <b>🔤 WORD SCRAMBLE</b> ❞\n\n"
         f"<blockquote>🧩 Unscramble this:\n\n<b>{' '.join(scrambled)}</b>\n\n"
-        f"⚡ First correct answer wins <b>30 pts</b>!</blockquote>", parse_mode=constants.ParseMode.HTML)
+        f"⚡ First correct answer wins <b>30 pts</b>!\n"
+        f"⏱️ Time limit: <b>2 minutes</b></blockquote>", parse_mode=constants.ParseMode.HTML)
+    session["timeout_task"] = asyncio.create_task(_scramble_timeout(bot, chat.id, sid))
 
-async def scramble_message(update, context):
+
+
+async def _scramble_timeout(bot, chat_id, sid):
+    """End a Word Scramble round after 2 minutes and announce the result."""
+    try:
+        await asyncio.sleep(120)
+        session = _get_session(chat_id, "scramble")
+        if not session or session.get("id") != sid:
+            return
+        word = session["word"]
+        _cleanup(chat_id, "scramble")
+        await bot.send_message(
+            chat_id,
+            f"⏰ <b>TIME'S UP!</b>\n\n"
+            f"❌ Nobody unscrambled the word in <b>2 minutes</b>.\n"
+            f"🔤 The word was: <b>{word}</b>\n\n"
+            f"🎮 Use /scramble to play again!",
+            parse_mode=constants.ParseMode.HTML,
+        )
+    except asyncio.CancelledError:
+        return
+    except TelegramError:
+        return
+    except Exception:
+        return
+\nasync def scramble_message(update, context):
     chat = update.effective_chat
     s = _get_session(chat.id, "scramble")
     if not s:
@@ -233,6 +261,9 @@ async def scramble_message(update, context):
         return
     sid = s["id"]
     word = s["word"]
+    timeout_task = s.get("timeout_task")
+    if timeout_task and not timeout_task.done():
+        timeout_task.cancel()
     _cleanup(chat.id, "scramble")
     _score(update.effective_user, chat.id, sid, 30, "__word_scramble__")
     await update.message.reply_text(
