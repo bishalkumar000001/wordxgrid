@@ -37,7 +37,7 @@ from telegram.ext import (
 import config
 import database as db       # shared scoring — wins appear on /lb
 import wordle_db
-from wordle_words import WORDS_BY_LENGTH
+from wordle_words import ANSWERS_BY_LENGTH, WORDS_BY_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -51,35 +51,19 @@ VALID_WORDS: dict[int, set[str]] = {
 
 
 def _preferred_pool(length: int, top_n: int = 500) -> list[str]:
-    """
-    Return a list of the top_n words for the given length ranked by letter
-    frequency. This produces easier / more guessable words (common letters
-    and varied letters) for daily or default play.
-    """
-    # Prefer an "easier" pool for common daily games (5- and 6-letter)
-    if length in (5, 6):
-        pool = _preferred_pool(length)
-    else:
-        pool = list(VALID_WORDS.get(length, set()))
+    """Return a deterministic, frequency-ranked subset of the valid guess list."""
+    # Hidden answers are intentionally restricted to wordle_words.cleaned.txt.
+    pool = list(ANSWERS_BY_LENGTH.get(length, []))
     if not pool:
         return pool
 
-    # Build letter frequency across the pool
     freq: dict[str, int] = {}
-    for w in pool:
-        for ch in w:
+    for word in pool:
+        for ch in word:
             freq[ch] = freq.get(ch, 0) + 1
 
-    # Score words by unique-letter frequency (prefer varied common letters)
     def score(word: str) -> int:
-        seen = set()
-        s = 0
-        for ch in word:
-            if ch in seen:
-                continue
-            seen.add(ch)
-            s += freq.get(ch, 0)
-        return s
+        return sum(freq.get(ch, 0) for ch in set(word))
 
     scored = sorted(pool, key=score, reverse=True)
     return scored[: min(top_n, len(scored))]
