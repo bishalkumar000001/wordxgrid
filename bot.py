@@ -36,6 +36,7 @@ from wordle import register_wordle_handlers
 import wordle_db as wordle_db_mod
 from spy import register_spy_handlers
 from mini_games import register_extra_game_handlers, memory_message
+from update_dedupe import install_handler_deduplication
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -1317,6 +1318,11 @@ def main():
         .defaults(Defaults(parse_mode=constants.ParseMode.HTML))
         .build()
     )
+
+    # Prevent the same Telegram update from executing the same game handler twice.
+    # Different game handlers can still process the same message when multiple
+    # games are intentionally active in one group.
+    install_handler_deduplication(app)
 
     # ── WordGrid handlers ─────────────────────────────────────────────────────
     app.add_handler(CommandHandler("start",               cmd_start))
