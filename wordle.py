@@ -433,47 +433,18 @@ async def handle_wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE
             InlineKeyboardButton("🟦 New 6-letter", callback_data="new6"),
         ]])
 
-    # Keep ONE status message per game. Edit the existing message instead of
-    # sending a new message after every guess. This prevents duplicate Wordle
-    # boards/messages from filling the group.
-    status_msg_id = updated_game.get("status_msg_id") or status_msg_id
-    if status_msg_id:
-        try:
-            await context.bot.edit_message_text(
-                chat_id=chat.id,
-                message_id=status_msg_id,
-                text=status_text,
-                parse_mode=constants.ParseMode.HTML,
-                reply_markup=keyboard,
-            )
-        except TelegramError as exc:
-            # If the old message was deleted or cannot be edited, create one
-            # replacement and store its ID. Normal guesses will not create
-            # additional messages.
-            logger.warning("Could not edit Wordle status message %s: %s", status_msg_id, exc)
-            try:
-                replacement = await context.bot.send_message(
-                    chat.id,
-                    status_text,
-                    parse_mode=constants.ParseMode.HTML,
-                    reply_markup=keyboard,
-                )
-                wordle_db.update_wordle_status_message(
-                    updated_game["game_id"], replacement.message_id
-                )
-            except TelegramError as send_exc:
-                logger.error("Could not replace Wordle status message: %s", send_exc)
-    else:
-        # Recovery for older games that have no stored status message ID.
-        replacement = await context.bot.send_message(
+    # Wordle intentionally keeps the classic behavior: every valid guess gets
+    # its own new board/status message. The global update de-duplication still
+    # prevents the same Telegram update from being processed twice.
+    try:
+        await context.bot.send_message(
             chat.id,
             status_text,
             parse_mode=constants.ParseMode.HTML,
             reply_markup=keyboard,
         )
-        wordle_db.update_wordle_status_message(
-            updated_game["game_id"], replacement.message_id
-        )
+    except TelegramError as exc:
+        logger.error("Could not send Wordle status message: %s", exc)
 
 
 # ─── Registration ──────────────────────────────────────────────────────────────
