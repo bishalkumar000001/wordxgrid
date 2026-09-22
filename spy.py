@@ -156,7 +156,8 @@ async def spy_help_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1️⃣ Join with <b>➕ Join Game</b> (you must /start the bot in DM first).\n"
         "2️⃣ Host presses <b>▶️ Start Game</b>.\n"
         "3️⃣ Civilians get the secret word privately; the Spy does not.\n"
-        "4️⃣ Everyone gives <b>ONE clue</b> with <code>/clue your clue</code>.\n"
+        "4️⃣ Everyone must give <b>ONE clue</b> with <code>/clue your clue</code>.\n"
+        "   Players who miss the deadline are removed from that game automatically.\n"
         "5️⃣ Vote using the private inline buttons — one vote, no self-vote.\n"
         "6️⃣ Spy has the final guess <b>only if tied for the highest votes</b>.\n"
         "7️⃣ Final guess has <b>20 buttons</b>: 1 correct + 19 decoys.\n\n"
@@ -432,7 +433,7 @@ async def _begin_game(context, game):
     await context.bot.send_message(
         game["group_id"],
         "❝ <b>FIND THE SPY · CLUE ROUND</b> ❞\n\n<blockquote>"
-        "Everyone must give <b>one</b> clue. Don't say the secret word.\n\n" + names +
+        "Everyone must give <b>one</b> clue or be removed from this game. Don't say the secret word.\n\n" + names +
         "\n\n🗣️ Send your clue with <code>/clue &lt;your clue&gt;</code>.\n"
         f"⏱️ You have {CLUE_SECONDS} seconds.</blockquote>", parse_mode=constants.ParseMode.HTML)
     context.job_queue.run_once(spy_clue_timeout, CLUE_SECONDS, data={"game_id": game["game_id"], "chat_id": game["group_id"]}, name=f"spy_clue_{game['game_id']}")
@@ -460,8 +461,49 @@ async def cmd_clue(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def spy_clue_timeout(context):
     game = spy_db.get_game(context.job.data["game_id"])
-    if game and game.get("active") and game.get("phase") == "clues":
-        await _start_voting(context, game)
+    if not game or not game.get("active") or game.get("phase") != "clues":
+        return
+
+    clue_user_ids = {clue["user_id"] for clue in game.get("clues", [])}
+    missing = [
+        player for player in game.get("players", [])
+        if player["user_id"] not in clue_user_ids
+    ]
+
+    if missing:
+        spy_db.remove_players(game["game_id"], missing)
+        game = spy_db.get_game(game["game_id"])
+        removed_names = ", ".join(mention(player) for player in missing)
+        await context.bot.send_message(
+            game["group_id"],
+            "⚠️ <b>Clue deadline reached.</b>\n\n"
+            f"🚪 Removed from this game for not giving a clue: {removed_names}",
+            parse_mode=constants.ParseMode.HTML,
+        )
+
+        # Missing a required clue also removes the Spy. In that case there is
+        # no reason to continue to a vote: the civilians win immediately.
+        if game.get("spy_id") in {player["user_id"] for player in missing}:
+            await _end_round(
+                context,
+                game,
+                spy_won=False,
+                reason="The Spy did not give a clue and was removed from the game.",
+            )
+            return
+
+        # A single remaining player cannot cast a valid vote. The surviving
+        # Spy wins if the missed clues left nobody to challenge them.
+        if len(game.get("players", [])) < 2:
+            await _end_round(
+                context,
+                game,
+                spy_won=True,
+                reason="Too few players remained after the missed-clue removals.",
+            )
+            return
+
+    await _start_voting(context, game)
 
 
 async def _start_voting(context, game):
@@ -624,13 +666,16 @@ async def _end_round(context, game, spy_won: bool, reason: str):
         for job in context.job_queue.get_jobs_by_name(prefix + game["game_id"]): job.schedule_removal()
     spy_id = game["spy_id"]
     players = game["players"]
+    all_players = players + game.get("removed_players", [])
+    spy_player = next((p for p in all_players if p["user_id"] == spy_id), None)
     spy_points = 500 if spy_won else 0
     civilian_points = 0 if spy_won else 100
     for p in players:
         won = (p["user_id"] == spy_id and spy_won) or (p["user_id"] != spy_id and not spy_won)
         spy_db.update_stats(p["user_id"], won, p["user_id"] == spy_id, spy_points if p["user_id"] == spy_id else civilian_points)
     outcome = "🕵️ <b>SPY WINS!</b>" if spy_won else "👨‍👩‍👧 <b>CIVILIANS WIN!</b>"
-    await context.bot.send_message(game["group_id"], f"━━━━━━━━━━━━━━━━━━\n{outcome}\n━━━━━━━━━━━━━━━━━━\n\n{html.escape(reason)}\n\n🕵️ Spy: {mention(next(p for p in players if p['user_id'] == spy_id))}\n🔑 Secret word: <b>{html.escape(game['word'])}</b>\n\n💰 {'Spy +500 points' if spy_won else 'Each civilian +100 points'}\n\nUse /spy to play again.\n📊 Use /spystats to view your personal stats.", parse_mode=constants.ParseMode.HTML)
+    spy_name = mention(spy_player) if spy_player else f"<code>{spy_id}</code>"
+    await context.bot.send_message(game["group_id"], f"━━━━━━━━━━━━━━━━━━\n{outcome}\n━━━━━━━━━━━━━━━━━━\n\n{html.escape(reason)}\n\n🕵️ Spy: {spy_name}\n🔑 Secret word: <b>{html.escape(game['word'])}</b>\n\n💰 {'Spy +500 points' if spy_won else 'Each civilian +100 points'}\n\nUse /spy to play again.\n📊 Use /spystats to view your personal stats.", parse_mode=constants.ParseMode.HTML)
 
 
 async def cmd_spystats(update: Update, context: ContextTypes.DEFAULT_TYPE):

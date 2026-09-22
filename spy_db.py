@@ -50,6 +50,7 @@ def create_game(game_id: str, group_id: int, host_id: int, word: str):
         "active": True,
         "phase": "lobby",
         "players": [],
+        "removed_players": [],
         "spy_id": None,
         "clues": [],
         "votes": {},
@@ -100,6 +101,22 @@ def add_clue(game_id: str, user_id: int, name: str, clue: str) -> bool:
         {"game_id": game_id, "active": True, "phase": "clues",
          "clues.user_id": {"$ne": user_id}},
         {"$push": {"clues": {"user_id": user_id, "name": name, "clue": clue}}},
+    )
+    return result.modified_count == 1
+
+
+def remove_players(game_id: str, players: list[dict]) -> bool:
+    """Remove players who missed the clue deadline from this game only."""
+    if not players:
+        return False
+
+    user_ids = [player["user_id"] for player in players]
+    result = _get_db().spy_games.update_one(
+        {"game_id": game_id, "active": True, "phase": "clues"},
+        {
+            "$pull": {"players": {"user_id": {"$in": user_ids}}},
+            "$push": {"removed_players": {"$each": players}},
+        },
     )
     return result.modified_count == 1
 
