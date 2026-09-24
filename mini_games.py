@@ -513,3 +513,233 @@ def register_extra_game_handlers(app):
         ),
         group=-1,
     )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Word Chain
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def chain_cmd(update, context):
+    if update.effective_chat.type != "private":
+        await start_chain(context, update.effective_chat)
+
+async def start_chain(context, chat):
+    if _get_session(chat.id, "chain"):
+        await context.bot.send_message(chat.id, "⚠️ A Word Chain round is already running here. Finish it before starting another round!")
+        return
+
+    # Prefer 4–8 letter words so the game stays fast and readable.
+    pool = []
+    for length in (4, 5, 6, 7, 8):
+        pool.extend(WORDS_BY_LENGTH.get(length, []))
+    word = random.choice(pool).upper()
+    sid = "chain-" + uuid.uuid4().hex[:10]
+    _set_session(chat.id, "chain", {
+        "type": "chain", "id": sid, "word": word,
+        "used": {word}, "last_user": None, "streak": 0,
+    })
+    await context.bot.send_message(
+        chat.id,
+        f"❝ <b>🔤 WORD CHAIN</b> ❞\n\n"
+        f"Start with: <b>{word}</b>\n\n"
+        f"🔗 Next word must start with <b>{word[-1]}</b>.\n"
+        f"⚡ First valid answer wins <b>10 pts</b>!\n"
+        f"🚫 No repeated words.\n\n"
+        f"Example: <b>{word}</b> → <b>{word[-1]}...</b>",
+        parse_mode=constants.ParseMode.HTML,
+    )
+
+async def chain_message(update, context):
+    chat = update.effective_chat
+    s = _get_session(chat.id, "chain")
+    if not s or not update.message or not update.message.text:
+        return False
+
+    answer = update.message.text.strip().upper()
+    # Telegram messages can contain spaces/punctuation; only accept a clean word.
+    if not answer.isalpha() or len(answer) < 3 or len(answer) > 20:
+        return False
+    if answer in s["used"]:
+        return False
+    if answer[0] != s["word"][-1]:
+        return False
+
+    # Our bundled word list is the game's dictionary.
+    valid_words = None
+    for length in range(3, 21):
+        if length in WORDS_BY_LENGTH:
+            valid_words = valid_words or set()
+            valid_words.update(WORDS_BY_LENGTH[length])
+    if answer not in valid_words:
+        return False
+
+    previous = s["word"]
+    s["word"] = answer
+    s["used"].add(answer)
+    s["last_user"] = update.effective_user.id
+    s["streak"] += 1
+    points = 10 + min(20, (s["streak"] - 1) * 2)
+    _score(update.effective_user, chat.id, s["id"], points, "__word_chain__")
+
+    await update.message.reply_text(
+        f"🔗 <b>{previous}</b> → <b>{answer}</b> ✅\n\n"
+        f"🎯 Next letter: <b>{answer[-1]}</b>\n"
+        f"🔥 Chain: <b>{s['streak']}</b>\n"
+        f"🏆 <a href='tg://user?id={update.effective_user.id}'>{_name(update.effective_user)}</a> +<b>{points} pts</b>",
+        parse_mode=constants.ParseMode.HTML,
+    )
+    return True
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Higher or Lower — playing-card version
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CARD_RANKS = list(range(2, 15))  # 11=J, 12=Q, 13=K, 14=A
+_CARD_LABELS = {11: "J", 12: "Q", 13: "K", 14: "A"}
+_SUITS = ["♠️", "♥️", "♦️", "♣️"]
+
+
+def _card_text(card):
+    rank, suit = card
+    return f"{_CARD_LABELS.get(rank, str(rank))}{suit}"
+
+
+def _new_card(previous=None):
+    choices = [(r, s) for r in _CARD_RANKS for s in _SUITS]
+    if previous:
+        choices = [c for c in choices if c != previous]
+    return random.choice(choices)
+
+
+def _higher_lower_markup(chat_id):
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("⬆️ HIGHER", callback_data=f"hl:high:{chat_id}"),
+        InlineKeyboardButton("⬇️ LOWER", callback_data=f"hl:low:{chat_id}"),
+    ], [
+        InlineKeyboardButton("🛑 End", callback_data=f"hl:end:{chat_id}"),
+    ]])
+
+async def higherlower_cmd(update, context):
+    if update.effective_chat.type != "private":
+        await start_higherlower(context.bot, update.effective_chat)
+
+async def start_higherlower(bot, chat):
+    if _get_session(chat.id, "higherlower"):
+        await bot.send_message(chat.id, "⚠️ A Higher or Lower round is already running here.")
+        return
+    card = _new_card()
+    sid = "higherlower-" + uuid.uuid4().hex[:10]
+    _set_session(chat.id, "higherlower", {
+        "type": "higherlower", "id": sid, "card": card,
+        "streak": 0, "round": 1,
+    })
+    await bot.send_message(
+        chat.id,
+        f"❝ <b>🃏 HIGHER OR LOWER</b> ❞\n\n"
+        f"Current card: <b>{_card_text(card)}</b>\n\n"
+        f"Will the next card be higher or lower?\n"
+        f"🔥 Streak: <b>0</b>\n\n"
+        f"Choose a button below:",
+        parse_mode=constants.ParseMode.HTML,
+        reply_markup=_higher_lower_markup(chat.id),
+    )
+
+async def higherlower_callback(update, context):
+    q = update.callback_query
+    await q.answer()
+    parts = q.data.split(":")
+    if len(parts) != 3:
+        return
+    choice, chat_id = parts[1], int(parts[2])
+    if q.message is None or q.message.chat.id != chat_id:
+        return
+    s = _get_session(chat_id, "higherlower")
+    if not s:
+        await q.answer("This round has ended.", show_alert=True)
+        return
+
+    if choice == "end":
+        streak = s["streak"]
+        _cleanup(chat_id, "higherlower")
+        await q.edit_message_text(
+            f"🛑 <b>HIGHER OR LOWER ENDED</b>\n\n"
+            f"🔥 Final streak: <b>{streak}</b>\n\n"
+            f"Play another round below!",
+            parse_mode=constants.ParseMode.HTML,
+            reply_markup=_play_again_markup(chat_id, "higherlower"),
+        )
+        return
+
+    old = s["card"]
+    new = _new_card(old)
+    old_rank, new_rank = old[0], new[0]
+    correct = (choice == "high" and new_rank > old_rank) or (choice == "low" and new_rank < old_rank)
+    # With a deck, equal rank is neither higher nor lower and counts as a miss.
+    if correct:
+        s["streak"] += 1
+        points = 10 + min(90, (s["streak"] - 1) * 5)
+        _score(q.from_user, chat_id, s["id"], points, "__higher_lower__")
+        s["card"] = new
+        s["round"] += 1
+        await q.edit_message_text(
+            f"🃏 <b>HIGHER OR LOWER</b>\n\n"
+            f"Previous: <b>{_card_text(old)}</b>\n"
+            f"Next: <b>{_card_text(new)}</b>\n\n"
+            f"✅ <b>Correct!</b>\n"
+            f"🔥 Streak: <b>{s['streak']}</b>\n"
+            f"🏆 <a href='tg://user?id={q.from_user.id}'>{_name(q.from_user)}</a> +<b>{points} pts</b>\n\n"
+            f"Will the next card be higher or lower?",
+            parse_mode=constants.ParseMode.HTML,
+            reply_markup=_higher_lower_markup(chat_id),
+        )
+    else:
+        streak = s["streak"]
+        _cleanup(chat_id, "higherlower")
+        await q.edit_message_text(
+            f"💥 <b>WRONG!</b>\n\n"
+            f"Previous: <b>{_card_text(old)}</b>\n"
+            f"Next: <b>{_card_text(new)}</b>\n\n"
+            f"❌ You chose <b>{'HIGHER' if choice == 'high' else 'LOWER'}</b>.\n"
+            f"🔥 Final streak: <b>{streak}</b>\n\n"
+            f"Try again!",
+            parse_mode=constants.ParseMode.HTML,
+            reply_markup=_play_again_markup(chat_id, "higherlower"),
+        )
+
+# Extend the existing dispatcher for the new games.
+_original_extra_message = extra_message
+async def extra_message(update, context):
+    chat = update.effective_chat
+    if update.message is None or not update.message.text:
+        return
+    if _get_session(chat.id, "chain"):
+        handled = await chain_message(update, context)
+        if handled:
+            return
+    await _original_extra_message(update, context)
+
+# Extend the existing registration function while preserving all old handlers.
+_original_register_extra_game_handlers = register_extra_game_handlers
+def register_extra_game_handlers(app):
+    _original_register_extra_game_handlers(app)
+    app.add_handler(CommandHandler("chain", chain_cmd))
+    app.add_handler(CommandHandler("higherlower", higherlower_cmd))
+    app.add_handler(CommandHandler("hl", higherlower_cmd))
+    app.add_handler(CallbackQueryHandler(higherlower_callback, pattern=r"^hl:"))
+    app.add_handler(CallbackQueryHandler(play_again_callback, pattern=r"^xagain:higherlower:"))
+
+# Add Higher/Lower support to the existing Play Again callback.
+_original_play_again_callback = play_again_callback
+async def play_again_callback(update, context):
+    q = update.callback_query
+    if q.data.startswith("xagain:higherlower:"):
+        await q.answer()
+        parts = q.data.split(":")
+        if len(parts) >= 3:
+            chat_id = int(parts[2])
+            if q.message and q.message.chat.id == chat_id:
+                await start_higherlower(context.bot, q.message.chat)
+        return
+    await _original_play_again_callback(update, context)
+
+# Re-registering below uses the wrapper above through the original function's
+# global lookup. The specific callback is intentionally kept for clarity.
