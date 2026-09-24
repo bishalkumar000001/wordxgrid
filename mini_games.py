@@ -42,6 +42,17 @@ def _menu(chat_id):
         [InlineKeyboardButton("🧠 Memory Test", callback_data=f"xgame:memory:{chat_id}")],
     ])
 
+
+def _play_again_markup(chat_id, game_type, digits=None):
+    """Return the single-tap Play Again button for a finished mini-game."""
+    if game_type == "code":
+        callback = f"xagain:code:{chat_id}:{digits or 4}"
+    else:
+        callback = f"xagain:{game_type}:{chat_id}"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("▶️ Play Again", callback_data=callback)]
+    ])
+
 async def game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     await update.message.reply_text(
@@ -69,6 +80,33 @@ async def start_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif kind == "scramble":
         await start_scramble(context, q.message.chat)
     else:
+        await start_memory(context.bot, q.message.chat)
+
+
+async def play_again_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start the same mini-game again from its finished-round button."""
+    q = update.callback_query
+    await q.answer()
+    parts = q.data.split(":")
+    if len(parts) < 3:
+        return
+
+    kind = parts[1]
+    chat_id = int(parts[2])
+    if q.message is None or q.message.chat.id != chat_id:
+        return
+    if q.message.chat.type == "private":
+        await q.answer("Ye games groups ke liye hain 😄", show_alert=True)
+        return
+
+    if kind == "code":
+        digits = 4
+        if len(parts) >= 4 and parts[3].isdigit():
+            digits = max(3, min(6, int(parts[3])))
+        await start_code(context.bot, q.message.chat, digits=digits)
+    elif kind == "scramble":
+        await start_scramble(context, q.message.chat)
+    elif kind == "memory":
         await start_memory(context.bot, q.message.chat)
 
 async def code_cmd(update, context):
@@ -168,7 +206,8 @@ async def code_message(update, context):
             f"🎉 <a href='tg://user?id={update.effective_user.id}'>{_name(update.effective_user)}</a> found the code!\n"
             f"🔢 Attempts: <b>{attempts}/10</b>\n"
             f"🏆 Reward: <b>+{points} pts</b>",
-            parse_mode=constants.ParseMode.HTML
+            parse_mode=constants.ParseMode.HTML,
+            reply_markup=_play_again_markup(chat.id, "code", session["digits"]),
         )
         return
 
@@ -186,7 +225,8 @@ async def code_message(update, context):
             f"<code>{board}</code>\n\n"
             f"🔐 The code was <code>{code}</code>\n"
             f"No points this round. Try again! 😈",
-            parse_mode=constants.ParseMode.HTML
+            parse_mode=constants.ParseMode.HTML,
+            reply_markup=_play_again_markup(chat.id, "code", session["digits"]),
         )
         return
 
@@ -260,8 +300,9 @@ async def _scramble_timeout_job(context: ContextTypes.DEFAULT_TYPE):
             f"⏰ <b>SCRAMBLE ENDED!</b>\n\n"
             f"😔 Time's up! Nobody solved the scramble.\n"
             f"✅ The correct word was <b>{word}</b>.\n\n"
-            f"🎮 Use <code>/scramble</code> to play again.",
+            f"🎮 Tap below or use <code>/scramble</code> to play again.",
             parse_mode=constants.ParseMode.HTML,
+            reply_markup=_play_again_markup(chat_id, "scramble"),
         )
     except TelegramError:
         pass
@@ -286,7 +327,9 @@ async def scramble_message(update, context):
     _score(update.effective_user, chat.id, sid, 30, "__word_scramble__")
     await update.message.reply_text(
         f"🎯 <b>SCRAMBLED!</b>\n\n🏆 <a href='tg://user?id={update.effective_user.id}'>{_name(update.effective_user)}</a> got <b>{word}</b> first!\n💰 <b>+30 pts</b>",
-        parse_mode=constants.ParseMode.HTML)
+        parse_mode=constants.ParseMode.HTML,
+        reply_markup=_play_again_markup(chat.id, "scramble"),
+    )
 
 async def memory_cmd(update, context):
     if update.effective_chat.type != "private":
@@ -358,8 +401,10 @@ async def _memory_round_flow(bot, chat_id, sid, seq, msg):
             await bot.send_message(
                 chat_id,
                 f"⏰ <b>Memory round over!</b>\n"
-                f"The sequence was <code>{seq}</code>.",
+                f"The sequence was <code>{seq}</code>.\n\n"
+                f"🎮 Tap below or use <code>/memory</code> to play again.",
                 parse_mode=constants.ParseMode.HTML,
+                reply_markup=_play_again_markup(chat_id, "memory"),
             )
     except asyncio.CancelledError:
         raise
@@ -434,6 +479,7 @@ async def memory_message(update, context):
         f"🎉 <a href='tg://user?id={update.effective_user.id}'>{_name(update.effective_user)}</a> remembered <code>{seq}</code>\n"
         f"🏆 <b>+40 pts</b>",
         parse_mode=constants.ParseMode.HTML,
+        reply_markup=_play_again_markup(chat.id, "memory"),
     )
     return True
 
@@ -457,6 +503,7 @@ def register_extra_game_handlers(app):
     app.add_handler(CommandHandler("scramble", scramble_cmd))
     app.add_handler(CommandHandler("memory", memory_cmd))
     app.add_handler(CallbackQueryHandler(start_from_callback, pattern=r"^xgame:"))
+    app.add_handler(CallbackQueryHandler(play_again_callback, pattern=r"^xagain:"))
 
     # Generic dispatcher remains for Code Breaker and Word Scramble.
     app.add_handler(
