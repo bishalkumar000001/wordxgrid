@@ -434,7 +434,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "━ <b>Word Grid</b> ━\n"
         "/new — Start an easy game (10×10)\n"
         "/new_hard — Start a hard game (12×12)\n"
-        "/end — End current game (admins only)\n"
+        "/end — End current game\n"
         "/hint — Get a word grid hint\n"
         "/lb — Word Grid leaderboard\n"
         "/stats — Your Word Grid stats\n\n"
@@ -606,7 +606,7 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: s
             )]]
         await update.message.reply_text(
             "⚠️ A game is already running!\n"
-            "Wait for it to finish or an admin can /end it.",
+            "Wait for it to finish or use /end to stop it.",
             reply_markup=InlineKeyboardMarkup(kb) if kb else None,
             quote=False,
         )
@@ -1012,11 +1012,6 @@ async def cmd_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if chat.type == "private":
         await update.message.reply_text("⚠️ Groups only.", quote=False)
-        return
-
-    member = await context.bot.get_chat_member(chat.id, user.id)
-    if member.status not in ("administrator", "creator"):
-        await update.message.reply_text("❌ Only group admins can end the game.", quote=False)
         return
 
     game = db.get_active_game(chat.id)
