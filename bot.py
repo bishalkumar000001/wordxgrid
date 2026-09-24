@@ -1207,6 +1207,8 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if any(x in err for x in (
                     "bot was kicked", "chat not found", "blocked by the user",
                     "bot is not a member", "have no rights to send a message",
+                    "not enough rights to send text",
+                    "not enough rights to send messages",
                 )):
                     db.remove_group(chat_id)
                     blocked += 1
@@ -1297,12 +1299,32 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
 # ─── Error handler ─────────────────────────────────────────────────────────────
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error("Exception while handling update:", exc_info=context.error)
+    error = context.error
+    error_text = str(error).lower() if error else ""
+
+    # Telegram raises this when the bot is muted/restricted in a group.
+    # Do not turn a permissions issue into another noisy bot-error message.
+    permission_error = any(phrase in error_text for phrase in (
+        "not enough rights to send text",
+        "not enough rights to send messages",
+        "have no rights to send a message",
+        "have no rights to send messages",
+        "bot was restricted",
+    ))
+
+    if permission_error:
+        logger.warning(
+            "Telegram denied sending a message because the bot lacks send-message "
+            "permission. Update the bot's group permissions. Error: %s", error
+        )
+        return
+
+    logger.error("Exception while handling update:", exc_info=error)
     if config.LOG_GROUP_ID:
         try:
             await context.bot.send_message(
                 config.LOG_GROUP_ID,
-                f"⚠️ Bot error: <code>{context.error}</code>",
+                f"⚠️ Bot error: <code>{error}</code>",
                 parse_mode=constants.ParseMode.HTML,
             )
         except Exception:
