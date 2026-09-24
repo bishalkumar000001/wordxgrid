@@ -608,6 +608,7 @@ async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: s
             "⚠️ A game is already running!\n"
             "Wait for it to finish or an admin can /end it.",
             reply_markup=InlineKeyboardMarkup(kb) if kb else None,
+            quote=False,
         )
         return
 
@@ -784,6 +785,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "\n".join(msg_parts),
             parse_mode=constants.ParseMode.HTML,
             reply_markup=play_again_keyboard(chat.id),
+            quote=False,
         )
 
         # Background: update grid image + unpin (non-blocking)
@@ -803,6 +805,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "\n".join(msg_parts),
         parse_mode=constants.ParseMode.HTML,
         reply_markup=go_to_grid_kb,
+        quote=False,
     )
 
     if pin_msg_id:
@@ -872,6 +875,7 @@ async def cmd_hint(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("🔆 Click to Reveal Hint 💡", callback_data=f"hint:reveal:{token}")
         ]]),
+        quote=False,
     )
 
     if update.message:
@@ -1083,8 +1087,7 @@ async def cmd_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text="\n".join(lines),
             parse_mode=constants.ParseMode.HTML,
             reply_markup=play_again_keyboard(chat.id),
-            reply_to_message_id=None,
-        )
+                    )
     except TelegramError as e:
         logger.warning("Could not send end-game message: %s", e)
         await context.bot.send_message(
