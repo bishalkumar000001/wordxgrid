@@ -873,6 +873,9 @@ async def play_again_callback(update, context):
         if len(parts) >= 3:
             chat_id = int(parts[2])
             if q.message and q.message.chat.id == chat_id:
+                # The previous round has already ended, but make the reset
+                # explicit so Play Again can never be blocked by stale state.
+                _cleanup(chat_id, "higherlower")
                 await start_higherlower(context.bot, q.message.chat)
         return
     await _original_play_again_callback(update, context)
