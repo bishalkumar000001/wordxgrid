@@ -530,6 +530,7 @@ def register_extra_game_handlers(app):
 # ─────────────────────────────────────────────────────────────────────────────
 
 CHAIN_SECONDS = 15
+CHAIN_WORDS_PER_LEVEL = 4  # number of valid answers before increasing word length
 
 def _chain_markup(chat_id):
     return InlineKeyboardMarkup([
@@ -615,9 +616,8 @@ async def start_chain(context, chat):
         )
         return
 
-    # Every round can use 4- through 20-letter words.
-    available_lengths = [length for length in range(4, 21) if CHAIN_WORDS_BY_LENGTH.get(length)]
-    length = random.choice(available_lengths)
+    # Chain progresses through word lengths: 4 letters -> 5 -> 6 ... -> 20.
+    length = 4
     word = random.choice(CHAIN_WORDS_BY_LENGTH[length]).upper()
     sid = "chain-" + uuid.uuid4().hex[:10]
     _set_session(chat.id, "chain", {
@@ -627,6 +627,8 @@ async def start_chain(context, chat):
         "used": {word},
         "last_user": None,
         "streak": 0,
+        "length": length,
+        "level_count": 0,
         "job": None,
     })
 
@@ -635,7 +637,7 @@ async def start_chain(context, chat):
         f"❝ <b>WORD CHAIN</b> ❞\n\n"
         f"Start with: <b>{word}</b>\n\n"
         f"Next word must start with <b>{word[-1]}</b>.\n"
-        f"Words must be <b>4–20 letters</b>.\n"
+        f"Length starts at <b>4 letters</b> and increases every <b>{CHAIN_WORDS_PER_LEVEL} words</b>: 4 → 4 → 4 → 4 → 5 → 5 → 5 → 5 → 6 → ... → 20.\n"
         f"🚫 No repeated words.\n"
         f"⏱️ You have <b>{CHAIN_SECONDS} seconds</b> for each answer.\n\n"
         f"Example: <b>{word}</b> → <b>{word[-1]}...</b>",
@@ -651,13 +653,14 @@ async def chain_message(update, context):
         return False
 
     answer = update.message.text.strip().upper()
-    if not answer.isalpha() or len(answer) < 4 or len(answer) > 20:
+    required_length = s.get("length", 4)
+    if not answer.isalpha() or len(answer) != required_length:
         return False
     if answer in s["used"]:
         return False
     if answer[0] != s["word"][-1]:
         return False
-    if answer not in CHAIN_WORDS_BY_LENGTH.get(len(answer), ()):
+    if answer not in CHAIN_WORDS_BY_LENGTH.get(required_length, ()):
         return False
 
     previous = s["word"]
@@ -665,6 +668,13 @@ async def chain_message(update, context):
     s["used"].add(answer)
     s["last_user"] = update.effective_user.id
     s["streak"] += 1
+    s["level_count"] = s.get("level_count", 0) + 1
+
+    # After four successful words, move to the next length. Once 20 is
+    # reached, keep the game at 20 letters rather than going back down.
+    if s["level_count"] >= CHAIN_WORDS_PER_LEVEL and s["length"] < 20:
+        s["length"] += 1
+        s["level_count"] = 0
     points = 10 + min(40, (s["streak"] - 1) * 2)
     _score(update.effective_user, chat.id, s["id"], points, "__word_chain__")
     _schedule_chain_timeout(context, chat.id, s["id"])
@@ -672,6 +682,7 @@ async def chain_message(update, context):
     await update.message.reply_text(
         f"🔗 <b>{previous}</b> → <b>{answer}</b> ✅\n\n"
         f"🎯 Next letter: <b>{answer[-1]}</b>\n"
+        f"📏 Next word: <b>{s['length']} letters</b>\n"
         f"🔥 Chain: <b>{s['streak']}</b>\n"
         f"⏱️ <b>{CHAIN_SECONDS} seconds</b> left\n"
         f"🏆 <a href='tg://user?id={update.effective_user.id}'>{_name(update.effective_user)}</a> +<b>{points} pts</b>",
