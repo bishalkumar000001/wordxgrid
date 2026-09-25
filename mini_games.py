@@ -10,6 +10,7 @@ from telegram.error import TelegramError
 
 import database as db
 from words import WORDS_BY_LENGTH
+from chain_words import CHAIN_WORDS, CHAIN_WORDS_BY_LENGTH
 
 # One independent session per game type and group. Different games can run
 # simultaneously in the same group (e.g. Code Breaker + Scramble + Memory).
@@ -37,9 +38,11 @@ def _score(user, chat_id, game_id, points, label):
 
 def _menu(chat_id):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔐 Code Breaker", callback_data=f"xgame:code:{chat_id}"),
-         InlineKeyboardButton("🔤 Word Scramble", callback_data=f"xgame:scramble:{chat_id}")],
-        [InlineKeyboardButton("🧠 Memory Test", callback_data=f"xgame:memory:{chat_id}")],
+        [InlineKeyboardButton("Code Breaker", callback_data=f"xgame:code:{chat_id}"),
+         InlineKeyboardButton("Word Scramble", callback_data=f"xgame:scramble:{chat_id}")],
+        [InlineKeyboardButton("Memory Test", callback_data=f"xgame:memory:{chat_id}")],
+        [InlineKeyboardButton("Higher/Lower", callback_data=f"xgame:higherlower:{chat_id}"),
+         InlineKeyboardButton("Chain", callback_data=f"xgame:chain:{chat_id}")],
     ])
 
 
@@ -60,7 +63,9 @@ async def game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎮 Pick a challenge:\n\n"
         "🔐 <b>Code Breaker</b> — crack a 3–6 digit secret code.\n"
         "🔤 <b>Word Scramble</b> — unscramble the word first.\n"
-        "🧠 <b>Memory Test</b> — remember the sequence and type it back.",
+        "🧠 <b>Memory Test</b> — remember the sequence and type it back.\n"
+        "🃏 <b>Higher/Lower</b> — predict the next card.\n"
+        "🔗 <b>Chain</b> — answer with a word starting with the last letter within 15 seconds.",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=_menu(chat.id),
     )
@@ -79,8 +84,14 @@ async def start_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await start_code(context.bot, q.message.chat, digits=4)
     elif kind == "scramble":
         await start_scramble(context, q.message.chat)
-    else:
+    elif kind == "memory":
         await start_memory(context.bot, q.message.chat)
+    elif kind == "higherlower":
+        await start_higherlower(context.bot, q.message.chat)
+    elif kind == "chain":
+        await start_chain(context, q.message.chat)
+    else:
+        return
 
 
 async def play_again_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -498,7 +509,7 @@ async def extra_message(update, context):
 
 
 def register_extra_game_handlers(app):
-    app.add_handler(CommandHandler("games", game_menu))
+    app.add_handler(CommandHandler(["game", "games"], game_menu))
     app.add_handler(CommandHandler("codebreaker", code_cmd))
     app.add_handler(CommandHandler("scramble", scramble_cmd))
     app.add_handler(CommandHandler("memory", memory_cmd))
@@ -518,35 +529,120 @@ def register_extra_game_handlers(app):
 # Word Chain
 # ─────────────────────────────────────────────────────────────────────────────
 
+CHAIN_SECONDS = 15
+
+def _chain_markup(chat_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("End Chain", callback_data=f"chain:end:{chat_id}")]
+    ])
+
 async def chain_cmd(update, context):
     if update.effective_chat.type != "private":
         await start_chain(context, update.effective_chat)
 
+async def end_chain(context, chat_id, ended_by=None, announce=True):
+    s = _get_session(chat_id, "chain")
+    if not s:
+        return False
+    job = s.get("job")
+    if job:
+        try:
+            job.schedule_removal()
+        except Exception:
+            pass
+    streak = s.get("streak", 0)
+    _cleanup(chat_id, "chain")
+    if announce:
+        suffix = f"\nEnded by <a href='tg://user?id={ended_by.id}'>{_name(ended_by)}</a>." if ended_by else ""
+        await context.bot.send_message(
+            chat_id,
+            f"🛑 <b>WORD CHAIN ENDED</b>\n\n"
+            f"🔥 Final chain: <b>{streak}</b>{suffix}\n\n"
+            f"Use <code>/chain</code> to start a new round.",
+            parse_mode=constants.ParseMode.HTML,
+        )
+    return True
+
+async def _chain_timeout_job(context: ContextTypes.DEFAULT_TYPE):
+    data = context.job.data
+    chat_id, sid = data["chat_id"], data["sid"]
+    s = _get_session(chat_id, "chain")
+    if not s or s.get("id") != sid:
+        return
+    streak = s.get("streak", 0)
+    last_word = s.get("word", "")
+    _cleanup(chat_id, "chain")
+    await context.bot.send_message(
+        chat_id,
+        f"⏰ <b>WORD CHAIN TIMEOUT</b>\n\n"
+        f"No valid word was given within <b>{CHAIN_SECONDS} seconds</b>.\n"
+        f"Last word: <b>{last_word}</b>\n"
+        f"🔥 Final chain: <b>{streak}</b>\n\n"
+        f"Use <code>/chain</code> to play again.",
+        parse_mode=constants.ParseMode.HTML,
+        reply_markup=_play_again_markup(chat_id, "chain"),
+    )
+
+def _schedule_chain_timeout(context, chat_id, sid):
+    s = _get_session(chat_id, "chain")
+    if not s:
+        return
+    old_job = s.get("job")
+    if old_job:
+        try:
+            old_job.schedule_removal()
+        except Exception:
+            pass
+    if context.job_queue is not None:
+        s["job"] = context.job_queue.run_once(
+            _chain_timeout_job,
+            CHAIN_SECONDS,
+            data={"chat_id": chat_id, "sid": sid},
+            name=f"chain:{chat_id}:{sid}",
+        )
+
+async def end_chain_cmd(update, context):
+    if update.effective_chat.type != "private":
+        if not await end_chain(context, update.effective_chat.id, update.effective_user):
+            await update.message.reply_text("ℹ️ There is no active Word Chain game here.")
+
 async def start_chain(context, chat):
     if _get_session(chat.id, "chain"):
-        await context.bot.send_message(chat.id, "⚠️ A Word Chain round is already running here. Finish it before starting another round!")
+        await context.bot.send_message(
+            chat.id,
+            "⚠️ A Word Chain round is already running here. Finish it or use <code>/endchain</code>.",
+            parse_mode=constants.ParseMode.HTML,
+        )
         return
 
-    # Prefer 4–8 letter words so the game stays fast and readable.
-    pool = []
-    for length in (4, 5, 6, 7, 8):
-        pool.extend(WORDS_BY_LENGTH.get(length, []))
-    word = random.choice(pool).upper()
+    # Every round can use 4- through 20-letter words.
+    available_lengths = [length for length in range(4, 21) if CHAIN_WORDS_BY_LENGTH.get(length)]
+    length = random.choice(available_lengths)
+    word = random.choice(CHAIN_WORDS_BY_LENGTH[length]).upper()
     sid = "chain-" + uuid.uuid4().hex[:10]
     _set_session(chat.id, "chain", {
-        "type": "chain", "id": sid, "word": word,
-        "used": {word}, "last_user": None, "streak": 0,
+        "type": "chain",
+        "id": sid,
+        "word": word,
+        "used": {word},
+        "last_user": None,
+        "streak": 0,
+        "job": None,
     })
+
     await context.bot.send_message(
         chat.id,
-        f"❝ <b>🔤 WORD CHAIN</b> ❞\n\n"
+        f"❝ <b>WORD CHAIN</b> ❞\n\n"
         f"Start with: <b>{word}</b>\n\n"
-        f"🔗 Next word must start with <b>{word[-1]}</b>.\n"
-        f"⚡ First valid answer wins <b>10 pts</b>!\n"
-        f"🚫 No repeated words.\n\n"
+        f"Next word must start with <b>{word[-1]}</b>.\n"
+        f"Words must be <b>4–20 letters</b>.\n"
+        f"🚫 No repeated words.\n"
+        f"⏱️ You have <b>{CHAIN_SECONDS} seconds</b> for each answer.\n\n"
         f"Example: <b>{word}</b> → <b>{word[-1]}...</b>",
         parse_mode=constants.ParseMode.HTML,
+        reply_markup=_chain_markup(chat.id),
     )
+    _schedule_chain_timeout(context, chat.id, sid)
 
 async def chain_message(update, context):
     chat = update.effective_chat
@@ -555,21 +651,13 @@ async def chain_message(update, context):
         return False
 
     answer = update.message.text.strip().upper()
-    # Telegram messages can contain spaces/punctuation; only accept a clean word.
-    if not answer.isalpha() or len(answer) < 3 or len(answer) > 20:
+    if not answer.isalpha() or len(answer) < 4 or len(answer) > 20:
         return False
     if answer in s["used"]:
         return False
     if answer[0] != s["word"][-1]:
         return False
-
-    # Our bundled word list is the game's dictionary.
-    valid_words = None
-    for length in range(3, 21):
-        if length in WORDS_BY_LENGTH:
-            valid_words = valid_words or set()
-            valid_words.update(WORDS_BY_LENGTH[length])
-    if answer not in valid_words:
+    if answer not in CHAIN_WORDS_BY_LENGTH.get(len(answer), ()):
         return False
 
     previous = s["word"]
@@ -577,17 +665,44 @@ async def chain_message(update, context):
     s["used"].add(answer)
     s["last_user"] = update.effective_user.id
     s["streak"] += 1
-    points = 10 + min(20, (s["streak"] - 1) * 2)
+    points = 10 + min(40, (s["streak"] - 1) * 2)
     _score(update.effective_user, chat.id, s["id"], points, "__word_chain__")
+    _schedule_chain_timeout(context, chat.id, s["id"])
 
     await update.message.reply_text(
         f"🔗 <b>{previous}</b> → <b>{answer}</b> ✅\n\n"
         f"🎯 Next letter: <b>{answer[-1]}</b>\n"
         f"🔥 Chain: <b>{s['streak']}</b>\n"
+        f"⏱️ <b>{CHAIN_SECONDS} seconds</b> left\n"
         f"🏆 <a href='tg://user?id={update.effective_user.id}'>{_name(update.effective_user)}</a> +<b>{points} pts</b>",
         parse_mode=constants.ParseMode.HTML,
     )
     return True
+
+async def chain_callback(update, context):
+    q = update.callback_query
+    await q.answer()
+    parts = q.data.split(":")
+    if len(parts) != 3:
+        return
+    action, chat_id = parts[1], int(parts[2])
+    if q.message is None or q.message.chat.id != chat_id:
+        return
+    if action == "end":
+        s = _get_session(chat_id, "chain")
+        if not s:
+            await q.answer("This chain has already ended.", show_alert=True)
+            return
+        streak = s.get("streak", 0)
+        await end_chain(context, chat_id, q.from_user, announce=False)
+        await q.edit_message_text(
+            f"🛑 <b>WORD CHAIN ENDED</b>\n\n"
+            f"🔥 Final chain: <b>{streak}</b>\n\n"
+            f"Use <code>/chain</code> to play again.",
+            parse_mode=constants.ParseMode.HTML,
+            reply_markup=_play_again_markup(chat_id, "chain"),
+        )
+        return
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Higher or Lower — playing-card version
@@ -722,8 +837,10 @@ _original_register_extra_game_handlers = register_extra_game_handlers
 def register_extra_game_handlers(app):
     _original_register_extra_game_handlers(app)
     app.add_handler(CommandHandler("chain", chain_cmd))
+    app.add_handler(CommandHandler(["endchain", "chainend"], end_chain_cmd))
     app.add_handler(CommandHandler("higherlower", higherlower_cmd))
     app.add_handler(CommandHandler("hl", higherlower_cmd))
+    app.add_handler(CallbackQueryHandler(chain_callback, pattern=r"^chain:"))
     app.add_handler(CallbackQueryHandler(higherlower_callback, pattern=r"^hl:"))
     app.add_handler(CallbackQueryHandler(play_again_callback, pattern=r"^xagain:higherlower:"))
 
@@ -731,6 +848,14 @@ def register_extra_game_handlers(app):
 _original_play_again_callback = play_again_callback
 async def play_again_callback(update, context):
     q = update.callback_query
+    if q.data.startswith("xagain:chain:"):
+        await q.answer()
+        parts = q.data.split(":")
+        if len(parts) >= 3:
+            chat_id = int(parts[2])
+            if q.message and q.message.chat.id == chat_id:
+                await start_chain(context, q.message.chat)
+        return
     if q.data.startswith("xagain:higherlower:"):
         await q.answer()
         parts = q.data.split(":")
