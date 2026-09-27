@@ -47,11 +47,21 @@ def _menu(chat_id):
 
 
 def _play_again_markup(chat_id, game_type, digits=None):
-    """Return the single-tap Play Again button for a finished mini-game."""
+    """Return the restart buttons for a finished mini-game."""
     if game_type == "code":
-        callback = f"xagain:code:{chat_id}:{digits or 4}"
-    else:
-        callback = f"xagain:{game_type}:{chat_id}"
+        # Let players choose the Code Breaker length directly after a round.
+        # Each button starts a fresh round with the selected difficulty.
+        return InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("CB 4", callback_data=f"xagain:code:{chat_id}:4"),
+                InlineKeyboardButton("CB 5", callback_data=f"xagain:code:{chat_id}:5"),
+            ],
+            [
+                InlineKeyboardButton("CB 6", callback_data=f"xagain:code:{chat_id}:6"),
+                InlineKeyboardButton("CB 7", callback_data=f"xagain:code:{chat_id}:7"),
+            ],
+        ])
+    callback = f"xagain:{game_type}:{chat_id}"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("▶️ Play Again", callback_data=callback)]
     ])
@@ -61,7 +71,7 @@ async def game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "❝ <b>VELOCITY GAME CENTER</b> ❞\n\n"
         "🎮 Pick a challenge:\n\n"
-        "🔐 <b>Code Breaker</b> — crack a 3–6 digit secret code.\n"
+        "🔐 <b>Code Breaker</b> — crack a 4–7 digit secret code.\n"
         "🔤 <b>Word Scramble</b> — unscramble the word first.\n"
         "🧠 <b>Memory Test</b> — remember the sequence and type it back.\n"
         "🃏 <b>Higher/Lower</b> — predict the next card.\n"
@@ -113,7 +123,7 @@ async def play_again_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if kind == "code":
         digits = 4
         if len(parts) >= 4 and parts[3].isdigit():
-            digits = max(3, min(6, int(parts[3])))
+            digits = max(4, min(7, int(parts[3])))
         await start_code(context.bot, q.message.chat, digits=digits)
     elif kind == "scramble":
         await start_scramble(context, q.message.chat)
@@ -123,12 +133,34 @@ async def play_again_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def code_cmd(update, context):
     if update.effective_chat.type == "private":
         return await update.message.reply_text("⚠️ Group mein Code Breaker khelo!")
+
+    # Supports both /codebreaker 5 and no-space commands such as /codebreaker5.
     digits = 4
-    if context.args and context.args[0].isdigit() and 3 <= int(context.args[0]) <= 6:
+    command = (update.message.text or "").split()[0].split("@")[0].lower()
+    if command.startswith("/codebreaker"):
+        suffix = command[len("/codebreaker"):].strip()
+        if suffix.isdigit() and 4 <= int(suffix) <= 7:
+            digits = int(suffix)
+    if context.args and context.args[0].isdigit() and 4 <= int(context.args[0]) <= 7:
         digits = int(context.args[0])
     await start_code(context.bot, update.effective_chat, digits)
 
+CODE_BREAKER_MODES = {
+    4: {"attempts": 10, "points": 30},
+    5: {"attempts": 15, "points": 40},
+    6: {"attempts": 20, "points": 50},
+    7: {"attempts": 20, "points": 60},
+}
+
 async def start_code(bot, chat, digits=4):
+    # Code Breaker difficulty/reward by code length.
+    # 4 digits = 10 chances / 30 points
+    # 5 digits = 15 chances / 40 points
+    # 6 digits = 20 chances / 50 points
+    # 7 digits = 20 chances / 60 points
+    digits = max(4, min(7, int(digits)))
+    mode = CODE_BREAKER_MODES[digits]
+
     old = _get_session(chat.id, "code")
     if old:
         await bot.send_message(chat.id, "⚠️ A Code Breaker round is already running here. Finish it before starting another Code Breaker round!")
@@ -140,7 +172,7 @@ async def start_code(bot, chat, digits=4):
     sid = "code-" + uuid.uuid4().hex[:10]
     _set_session(chat.id, "code", {
         "type": "code", "id": sid, "code": code, "attempts": 0,
-        "max_attempts": 10, "digits": digits, "started": asyncio.get_running_loop().time(),
+        "max_attempts": mode["attempts"], "points": mode["points"], "digits": digits, "started": asyncio.get_running_loop().time(),
         "history": []
     })
 
@@ -151,9 +183,9 @@ async def start_code(bot, chat, digits=4):
         f"🟩 = correct digit + correct place\n"
         f"🟨 = correct digit + wrong place\n"
         f"⬛ = digit is not in the code\n\n"
-        f"🎯 You get <b>10 attempts</b>.\n"
-        f"🏆 Solve on the first attempt = <b>50 pts</b>\n\n"
-        f"Example: <code>{'1234'[:digits]}</code>",
+        f"🎯 You get <b>{mode['attempts']} attempts</b>.\n"
+        f"🏆 Reward: <b>{mode['points']} pts</b>\n\n"
+        f"Example: <code>{'1234567'[:digits]}</code>",
         parse_mode=constants.ParseMode.HTML
     )
 
@@ -205,8 +237,8 @@ async def code_message(update, context):
 
     if text == code:
         attempts = session["attempts"]
-        # 50, 45, 40 ... 15 points depending on attempts.
-        points = max(15, 50 - (attempts - 1) * 5)
+        # Each code length has a fixed reward.
+        points = session["points"]
         sid = session["id"]
         board = _code_board(session)
         _cleanup(chat.id, "code")
@@ -215,7 +247,7 @@ async def code_message(update, context):
             f"🔓 <b>CODE CRACKED!</b>\n\n"
             f"<code>{board}</code>\n\n"
             f"🎉 <a href='tg://user?id={update.effective_user.id}'>{_name(update.effective_user)}</a> found the code!\n"
-            f"🔢 Attempts: <b>{attempts}/10</b>\n"
+            f"🔢 Attempts: <b>{attempts}/{session['max_attempts']}</b>\n"
             f"🏆 Reward: <b>+{points} pts</b>",
             parse_mode=constants.ParseMode.HTML,
             reply_markup=_play_again_markup(chat.id, "code", session["digits"]),
@@ -242,7 +274,7 @@ async def code_message(update, context):
         return
 
     await update.message.reply_text(
-        f"🔐 <b>CODE BREAKER</b>  •  Attempt <b>{session['attempts']}/10</b>\n\n"
+        f"🔐 <b>CODE BREAKER</b>  •  Attempt <b>{session['attempts']}/{session['max_attempts']}</b>\n\n"
         f"<code>{board}</code>\n\n"
         f"🟩 <b>{exact}</b> correct place  •  🟨 <b>{misplaced}</b> wrong place  •  ⬛ <b>{absent}</b> absent\n\n"
         f"💡 <b>Position-by-position clues are shown above.</b>\n"
@@ -510,7 +542,7 @@ async def extra_message(update, context):
 
 def register_extra_game_handlers(app):
     app.add_handler(CommandHandler(["game", "games"], game_menu))
-    app.add_handler(CommandHandler("codebreaker", code_cmd))
+    app.add_handler(CommandHandler(["codebreaker", "codebreaker4", "codebreaker5", "codebreaker6", "codebreaker7"], code_cmd))
     app.add_handler(CommandHandler("scramble", scramble_cmd))
     app.add_handler(CommandHandler("memory", memory_cmd))
     app.add_handler(CallbackQueryHandler(start_from_callback, pattern=r"^xgame:"))

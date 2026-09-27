@@ -408,7 +408,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🧩 <code>/new</code> — Build &amp; solve the WordGrid\n"
         "🟩 <code>/wordle</code> — Guess the hidden word\n"
         "🧠 <code>/paheli</code> — Solve the riddle\n"
-        "🔐 <code>/codebreaker</code> — Crack the secret code\n"
+        "🔐 <code>/codebreaker</code> or <code>/codebreaker4</code>–<code>/codebreaker7</code> — Crack a 4–7 digit secret code\n"
         "🔤 <code>/scramble</code> — Unscramble the word\n"
         "🧠 <code>/memory</code> — Test your memory\n"
         "🕵️ <code>/spy</code> — Find the hidden spy\n\n"
