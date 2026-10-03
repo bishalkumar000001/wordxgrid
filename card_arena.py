@@ -38,34 +38,173 @@ def _font(size, bold=False):
     return ImageFont.load_default()
 
 def _card_image(card):
-    """Render a collectible card locally, so no external image API is required."""
+    """Render a premium, full-art fantasy trading card locally (no image API needed)."""
+    from hashlib import sha256
+
     w, h = 720, 1000
-    accent = RARITY_COLORS.get(card.get("rarity"), RARITY_COLORS["Common"])
-    im = Image.new("RGB", (w, h), (12, 18, 38)); px = im.load()
+    rarity = card.get("rarity", "Common")
+    accent = RARITY_COLORS.get(rarity, RARITY_COLORS["Common"])
+    element = card.get("element", "Cosmic")
+    name = card.get("name", "Unknown Card")
+    seed = int(sha256((name + element).encode()).hexdigest()[:8], 16)
+    # Each element gets its own deep atmospheric palette.
+    palettes = {
+        "Fire": ((38, 9, 19), (170, 39, 16), (255, 172, 39)),
+        "Water": ((5, 24, 52), (12, 106, 155), (91, 225, 245)),
+        "Earth": ((22, 29, 24), (75, 105, 56), (192, 185, 112)),
+        "Air": ((12, 31, 59), (63, 117, 177), (207, 239, 255)),
+        "Ice": ((9, 27, 57), (59, 119, 181), (194, 245, 255)),
+        "Lightning": ((22, 13, 54), (91, 50, 166), (255, 229, 96)),
+        "Dark": ((15, 8, 29), (73, 19, 66), (255, 68, 113)),
+        "Light": ((56, 24, 9), (179, 91, 21), (255, 230, 132)),
+        "Cosmic": ((9, 8, 39), (65, 34, 126), (117, 226, 255)),
+    }
+    top, bottom, glow = palettes.get(element, palettes["Cosmic"])
+    im = Image.new("RGB", (w, h), top)
+    px = im.load()
+    # Dramatic vertical gradient with a bright central aura.
+    gx, gy = 360, 435
     for y in range(h):
-        t = y / h
-        col = tuple(int((1-t)*a + t*b) for a,b in zip((18, 31, 68), (45, 18, 65)))
-        for x in range(w): px[x,y] = col
-    d = ImageDraw.Draw(im)
-    d.rounded_rectangle((22,22,w-22,h-22), radius=34, outline=accent, width=8)
-    d.rounded_rectangle((45,45,w-45,160), radius=24, fill=(18,25,49), outline=accent, width=3)
-    d.text((68,65), card.get("rarity", "COMMON").upper(), font=_font(30, True), fill=accent)
-    d.text((68,108), card.get("element", "MYSTIC").upper()+" ELEMENT", font=_font(20), fill=(200,212,235))
-    cx, cy = w//2, 445
-    for r in (210,175,138,100):
-        d.ellipse((cx-r,cy-r,cx+r,cy+r), outline=tuple(min(255,int(c*0.75)) for c in accent), width=3)
-    # Distinct abstract creature sigil, built from geometric shapes and light rays.
-    for angle in range(0,360,30):
-        rad=math.radians(angle); x1=cx+int(105*math.cos(rad)); y1=cy+int(105*math.sin(rad)); x2=cx+int(175*math.cos(rad)); y2=cy+int(175*math.sin(rad))
-        d.line((x1,y1,x2,y2), fill=accent, width=5)
-    d.polygon([(cx,cy-125),(cx+88,cy-15),(cx+55,cy+100),(cx,cy+140),(cx-55,cy+100),(cx-88,cy-15)], fill=(20,28,55), outline=accent)
-    d.ellipse((cx-35,cy-35,cx+35,cy+35), fill=accent)
-    d.text((65,700), card.get("name", "Unknown Card"), font=_font(42, True), fill=(255,255,255))
-    d.text((65,770), "POWER", font=_font(24, True), fill=(185,198,224))
-    d.text((65,808), str(card.get("power", 0)), font=_font(66, True), fill=accent)
-    d.text((65,910), "VELOCITY CARD ARENA", font=_font(22, True), fill=(190,202,228))
-    d.text((w-280,910), "ID " + str(card.get("card_id", "--------")), font=_font(18), fill=(190,202,228))
-    out = io.BytesIO(); im.save(out, format="PNG", optimize=True); out.seek(0); out.name = "card.png"
+        ty = y / h
+        for x in range(w):
+            t = ty * 0.62
+            dx, dy = (x-gx)/430, (y-gy)/560
+            aura = max(0.0, 1.0 - (dx*dx + dy*dy)) ** 2 * 0.48
+            px[x, y] = tuple(max(0, min(255, int(top[i]*(1-t-aura) + bottom[i]*t + glow[i]*aura))) for i in range(3))
+    d = ImageDraw.Draw(im, "RGBA")
+
+    # Star field and energy streaks behind the creature.
+    rng = random.Random(seed)
+    for _ in range(115):
+        x, y = rng.randint(48, w-48), rng.randint(170, 790)
+        r = rng.choice((1, 2, 2, 3, 4))
+        d.ellipse((x-r, y-r, x+r, y+r), fill=(*glow, rng.randint(65, 210)))
+    for i in range(11):
+        x = 65 + i * 59
+        d.line((x, 205, x + rng.randint(-95, 95), 690), fill=(*accent, 28), width=rng.choice((2, 3, 5)))
+
+    # Layered magical circles and a sun/moon halo.
+    for r, alpha, width in ((245, 45, 4), (215, 65, 3), (180, 80, 2)):
+        d.ellipse((360-r, 425-r, 360+r, 425+r), outline=(*glow, alpha), width=width)
+    for angle in range(0, 360, 15):
+        rad = math.radians(angle)
+        r1, r2 = 218, 240 if angle % 30 == 0 else 228
+        d.line((360+math.cos(rad)*r1, 425+math.sin(rad)*r1, 360+math.cos(rad)*r2, 425+math.sin(rad)*r2), fill=(*glow, 135), width=3)
+
+    # Original geometric fantasy-creature illustration. Silhouette changes by creature type.
+    creature = "dragon"
+    if "Fox" in name: creature = "fox"
+    elif "Guardian" in name: creature = "turtle"
+    elif "Golem" in name or "Titan" in name: creature = "golem"
+    elif "Hawk" in name or "Phoenix" in name: creature = "bird"
+    elif "Witch" in name: creature = "mage"
+    elif "Wolf" in name: creature = "wolf"
+    elif "Dragon" in name: creature = "dragon"
+
+    ink = (13, 16, 34, 238)
+    shadow = (8, 10, 25, 210)
+    plate = (*accent, 235)
+    # Glowing underpainting and broad silhouette shapes.
+    d.ellipse((205, 255, 515, 620), fill=(*glow, 30))
+    if creature in ("dragon", "bird"):
+        # Monumental wings, with a luminous inner membrane.
+        left_wing = [(340,370),(230,285),(110,270),(165,365),(85,420),(195,425),(230,500),(305,465)]
+        right_wing = [(380,370),(490,285),(610,270),(555,365),(635,420),(525,425),(490,500),(415,465)]
+        d.polygon(left_wing, fill=shadow, outline=(*accent,235))
+        d.polygon(right_wing, fill=shadow, outline=(*accent,235))
+        for points in ([(320,390),(235,315),(165,300),(215,375),(145,407),(245,405)], [(400,390),(485,315),(555,300),(505,375),(575,407),(475,405)]):
+            d.line(points, fill=(*glow, 200), width=5, joint="curve")
+        if creature == "bird":
+            d.polygon([(360,305),(420,385),(395,500),(360,555),(325,500),(300,385)], fill=plate, outline=(255,240,190,255))
+            d.polygon([(335,390),(285,465),(335,450),(360,510),(385,450),(435,465),(385,390)], fill=ink, outline=(*glow,240))
+            d.polygon([(360,505),(342,560),(360,548),(378,560)], fill=(*glow,235))
+            d.polygon([(390,345),(440,360),(397,378)], fill=(*glow,245))
+        else:
+            d.polygon([(300,375),(330,330),(360,350),(390,330),(420,375),(410,475),(360,535),(310,475)], fill=ink, outline=plate)
+            d.polygon([(315,385),(265,355),(286,410),(315,430)], fill=(*accent,210))
+            d.polygon([(405,385),(455,355),(434,410),(405,430)], fill=(*accent,210))
+            d.polygon([(326,345),(315,290),(350,330)], fill=plate, outline=(*glow,255))
+            d.polygon([(394,345),(405,290),(370,330)], fill=plate, outline=(*glow,255))
+            d.polygon([(338,388),(351,398),(344,406)], fill=(*glow,255))
+            d.polygon([(382,388),(369,398),(376,406)], fill=(*glow,255))
+            d.line((360,408,360,448), fill=(*glow,230), width=4)
+            d.polygon([(360,535),(398,590),(365,575),(345,600),(322,565)], fill=ink, outline=plate)
+    elif creature == "wolf":
+        d.polygon([(250,390),(205,315),(290,350),(325,300),(360,350),(395,300),(430,350),(515,315),(470,405),(440,490),(360,545),(280,490)], fill=ink, outline=plate)
+        d.polygon([(275,400),(325,420),(345,450),(315,465)], fill=(*accent,200))
+        d.polygon([(445,400),(395,420),(375,450),(405,465)], fill=(*accent,200))
+        d.polygon([(320,390),(345,405),(329,415)], fill=(*glow,255)); d.polygon([(400,390),(375,405),(391,415)], fill=(*glow,255))
+        d.polygon([(345,440),(375,440),(360,460)], fill=(*glow,235))
+        d.polygon([(280,475),(235,535),(305,510)], fill=plate); d.polygon([(440,475),(485,535),(415,510)], fill=plate)
+    elif creature == "fox":
+        d.polygon([(265,365),(225,260),(315,335),(360,320),(405,335),(495,260),(455,365),(430,460),(360,520),(290,460)], fill=ink, outline=plate)
+        d.polygon([(260,320),(245,278),(300,342)], fill=(*accent,230)); d.polygon([(460,320),(475,278),(420,342)], fill=(*accent,230))
+        d.polygon([(300,400),(345,420),(330,440)], fill=(*glow,255)); d.polygon([(420,400),(375,420),(390,440)], fill=(*glow,255))
+        d.polygon([(360,435),(390,458),(360,480),(330,458)], fill=plate)
+        for off in (-1,0,1): d.arc((255+off*18,440+abs(off)*15,465+off*18,625+abs(off)*15), 200, 330, fill=(*glow,160), width=7)
+    elif creature == "turtle":
+        d.ellipse((250,350,470,535), fill=ink, outline=plate, width=7)
+        d.polygon([(260,395),(205,365),(220,430),(270,450)], fill=(*accent,230), outline=plate)
+        d.polygon([(460,395),(515,365),(500,430),(450,450)], fill=(*accent,230), outline=plate)
+        d.polygon([(290,390),(360,340),(430,390),(410,475),(360,505),(310,475)], fill=shadow, outline=(*glow,230), width=5)
+        for x,y in ((330,405),(390,405)): d.ellipse((x-9,y-9,x+9,y+9), fill=(*glow,255))
+        d.polygon([(335,450),(385,450),(360,475)], fill=plate)
+        for x in (295,415): d.polygon([(x,505),(x-15,555),(x+15,545)], fill=ink, outline=plate)
+    elif creature == "golem":
+        d.polygon([(285,350),(315,300),(360,325),(405,300),(435,350),(420,480),(390,535),(330,535),(300,480)], fill=ink, outline=plate, width=6)
+        d.polygon([(300,375),(245,400),(270,470),(315,450)], fill=ink, outline=plate, width=5)
+        d.polygon([(420,375),(475,400),(450,470),(405,450)], fill=ink, outline=plate, width=5)
+        d.polygon([(325,375),(350,390),(335,405)], fill=(*glow,255)); d.polygon([(395,375),(370,390),(385,405)], fill=(*glow,255))
+        d.line((360,415,360,485), fill=(*glow,230), width=9)
+        for yy in (440,470): d.line((340,yy,380,yy), fill=(*accent,220), width=5)
+    else:  # mystical mage
+        d.polygon([(360,285),(405,350),(435,465),(470,555),(250,555),(285,465),(315,350)], fill=ink, outline=plate, width=6)
+        d.polygon([(300,350),(360,260),(420,350)], fill=shadow, outline=(*glow,245), width=5)
+        d.ellipse((325,350,395,420), fill=(*accent,190), outline=(*glow,255), width=4)
+        d.ellipse((347,372,373,398), fill=(*glow,255))
+        d.line((360,420,360,505), fill=(*glow,240), width=5)
+        d.arc((285,375,435,525), 205, 335, fill=(*glow,210), width=6)
+
+    # Foreground energy shards and card-art floor.
+    d.polygon([(80,690),(170,615),(230,690),(300,620),(360,700),(425,620),(500,690),(565,610),(650,690),(650,735),(70,735)], fill=(5,8,24,190), outline=(*accent,100))
+    d.line((75,720,645,720), fill=(*glow,210), width=3)
+
+    # Premium frame: layered gold edging, corner flourishes, and title plate.
+    gold = (247, 207, 112, 245)
+    d.rounded_rectangle((15, 15, w-15, h-15), radius=32, outline=gold, width=5)
+    d.rounded_rectangle((27, 27, w-27, h-27), radius=27, outline=(*accent,240), width=4)
+    d.rounded_rectangle((42, 42, w-42, h-42), radius=21, outline=(255, 230, 164, 125), width=2)
+    # Ornate corner diamonds and side runes.
+    for x,y in ((58,58),(w-58,58),(58,h-58),(w-58,h-58)):
+        d.polygon([(x,y-17),(x+12,y),(x,y+17),(x-12,y)], fill=(*accent,235), outline=gold)
+        d.ellipse((x-4,y-4,x+4,y+4), fill=(255,248,211,255))
+    for y in range(225, 690, 62):
+        d.polygon([(39,y),(48,y-8),(57,y),(48,y+8)], fill=(*accent,175))
+        d.polygon([(w-39,y),(w-48,y-8),(w-57,y),(w-48,y+8)], fill=(*accent,175))
+
+    # Top banner and compact element badge.
+    d.rounded_rectangle((52, 52, w-52, 164), radius=19, fill=(8, 12, 30, 220), outline=gold, width=3)
+    d.text((72, 66), rarity.upper(), font=_font(28, True), fill=(*accent,255))
+    d.text((72, 111), element.upper() + " ELEMENT", font=_font(19, True), fill=(235, 237, 249, 255))
+    badge_x, badge_y = w-104, 108
+    d.ellipse((badge_x-29,badge_y-29,badge_x+29,badge_y+29), fill=(13,17,36,235), outline=gold, width=3)
+    d.ellipse((badge_x-20,badge_y-20,badge_x+20,badge_y+20), outline=(*glow,235), width=3)
+    d.text((badge_x-10,badge_y-13), str(min(9, max(1, RARITIES.index(rarity)+1)),), font=_font(26, True), fill=(255,255,255,255))
+
+    # Name and stat plate over the lower artwork.
+    d.rounded_rectangle((48, 742, w-48, 948), radius=22, fill=(7, 11, 28, 232), outline=gold, width=3)
+    title_font = _font(34 if len(name) < 17 else 27, True)
+    d.text((72, 761), name.upper(), font=title_font, fill=(255, 248, 226, 255), stroke_width=1, stroke_fill=(35, 20, 31, 255))
+    d.line((72, 810, w-72, 810), fill=(*accent,225), width=3)
+    d.text((74, 826), "POWER", font=_font(19, True), fill=(190, 203, 231, 255))
+    d.text((72, 849), str(card.get("power", 0)), font=_font(58, True), fill=(*glow,255), stroke_width=2, stroke_fill=(20, 15, 30, 255))
+    d.text((255, 860), "VELOCITY  /  ARENA", font=_font(17, True), fill=(222, 222, 237, 255))
+    d.text((255, 892), "CARD ID  " + str(card.get("card_id", "--------")), font=_font(16), fill=(190, 202, 225, 255))
+
+    out = io.BytesIO()
+    im.save(out, format="PNG", optimize=True)
+    out.seek(0)
+    out.name = "card.png"
     return out
 
 
@@ -200,6 +339,63 @@ async def arena_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     _init()
     parts = q.data.split(":")
+    # Each player selects their own card from the public battle message.
+    if len(parts) == 4 and parts[1] == "pick":
+        _, _, battle_id, card_id = parts
+        battle = _battles.find_one({"battle_id": battle_id, "status": "selecting"})
+        if not battle:
+            await q.answer("This battle is no longer active.", show_alert=True); return
+        uid = q.from_user.id
+        if uid not in (battle["challenger"], battle["opponent"]):
+            await q.answer("Only the two battling players can select cards.", show_alert=True); return
+        card = _cards.find_one({"user_id": uid, "card_id": card_id})
+        if not card:
+            await q.answer("You can only select a card from your own collection.", show_alert=True); return
+        field = "pick_challenger" if uid == battle["challenger"] else "pick_opponent"
+        if battle.get(field):
+            await q.answer("You already locked in your card for this battle.", show_alert=True); return
+        _battles.update_one({"battle_id": battle_id, "status": "selecting", field: {"$exists": False}}, {"$set": {field: card_id}})
+        battle = _battles.find_one({"battle_id": battle_id})
+        if not battle.get("pick_challenger") or not battle.get("pick_opponent"):
+            await q.answer("Card locked in privately! Waiting for your opponent.")
+            locked_text = "🔒 <b>YOUR CARD IS LOCKED IN</b>\n\nYour choice is private. The battle result will be posted in the group once both players have selected."
+            if q.message.photo:
+                await q.edit_message_caption(caption=locked_text, parse_mode="HTML", reply_markup=None)
+            else:
+                await q.edit_message_text(locked_text, parse_mode="HTML", reply_markup=None)
+            return
+        ca = _cards.find_one({"user_id": battle["challenger"], "card_id": battle["pick_challenger"]})
+        cb = _cards.find_one({"user_id": battle["opponent"], "card_id": battle["pick_opponent"]})
+        if not ca or not cb:
+            _battles.update_one({"battle_id": battle_id}, {"$set": {"status": "cancelled"}})
+            await q.edit_message_text("Battle cancelled because a selected card is no longer available."); await q.answer(); return
+        score_a = ca["power"] + random.randint(0, 10)
+        score_b = cb["power"] + random.randint(0, 10)
+        winner_id = battle["challenger"] if score_a > score_b else battle["opponent"] if score_b > score_a else None
+        result = "🤝 It's a draw! No cards change hands." if winner_id is None else (f"🏆 Challenger wins with {ca['name']}!" if winner_id == battle["challenger"] else f"🏆 Opponent wins with {cb['name']}!")
+        if winner_id is not None:
+            loser_id = battle["opponent"] if winner_id == battle["challenger"] else battle["challenger"]
+            losing_card = cb if loser_id == battle["opponent"] else ca
+            moved = _cards.delete_one({"user_id": loser_id, "card_id": losing_card["card_id"]})
+            if moved.deleted_count:
+                losing_card.pop("_id", None); losing_card["user_id"] = winner_id; losing_card["obtained_at"] = datetime.now(timezone.utc)
+                _cards.insert_one(losing_card)
+                result += f"\n🎴 {losing_card['name']} was transferred to the winner!"
+            _players.update_one({"user_id": winner_id}, {"$inc": {"trophies": 10, "wins": 1}, "$setOnInsert": {"user_id": winner_id}}, upsert=True)
+            _players.update_one({"user_id": loser_id}, {"$inc": {"trophies": -3, "losses": 1}, "$setOnInsert": {"user_id": loser_id}}, upsert=True)
+        _battles.update_one({"battle_id": battle_id, "status": "selecting"}, {"$set": {"status": "complete", "score_challenger": score_a, "score_opponent": score_b, "winner": winner_id}})
+        result_text = f"⚔️ <b>CARD DUEL RESULTS</b>\n\n{ca.get('emoji','🃏')} <b>{ca['name']}</b>: {score_a} power\nvs\n{cb.get('emoji','🃏')} <b>{cb['name']}</b>: {score_b} power\n\n{result}"
+        locked_text = "✅ Both cards are locked. The result has been posted in the group."
+        if q.message.photo:
+            await q.edit_message_caption(caption=locked_text, parse_mode="HTML", reply_markup=None)
+        else:
+            await q.edit_message_text(locked_text, parse_mode="HTML", reply_markup=None)
+        try:
+            await context.bot.send_message(chat_id=battle["group_chat_id"], text=result_text, parse_mode="HTML")
+        except Exception:
+            pass
+        await q.answer(); return
+
     if len(parts) != 4:
         await q.answer("Invalid action", show_alert=True); return
     _, kind, decision, item_id = parts
@@ -236,17 +432,30 @@ async def arena_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         a = list(_cards.find({"user_id":battle["challenger"]})); b = list(_cards.find({"user_id":battle["opponent"]}))
         if not a or not b:
             await q.edit_message_text("Battle cancelled: both players need at least one card."); await q.answer(); return
-        ca, cb = random.choice(a), random.choice(b)
-        score_a = ca["power"] + random.randint(0, 10); score_b = cb["power"] + random.randint(0, 10)
-        result = "It's a draw!" if score_a == score_b else (f"🏆 Challenger wins with {ca['name']}!" if score_a > score_b else f"🏆 Defender wins with {cb['name']}!")
-        winner_id = battle['challenger'] if score_a > score_b else battle['opponent'] if score_b > score_a else None
-        _battles.update_one({"battle_id":item_id,"status":"pending"},{"$set":{"status":"complete","score_challenger":score_a,"score_opponent":score_b,"winner":winner_id}})
-        if winner_id is not None:
-            loser_id = battle['opponent'] if winner_id == battle['challenger'] else battle['challenger']
-            _players.update_one({"user_id":winner_id},{"$inc":{"trophies":10,"wins":1},"$setOnInsert":{"user_id":winner_id}},upsert=True)
-            _players.update_one({"user_id":loser_id},{"$inc":{"trophies":-3,"losses":1},"$setOnInsert":{"user_id":loser_id}},upsert=True)
-        await q.edit_message_text(f"⚔️ <b>CARD BATTLE</b>\n\n{ca.get('emoji','🃏')} {ca['name']}: {score_a} power\nvs\n{cb.get('emoji','🃏')} {cb['name']}: {score_b} power\n\n{result}", parse_mode="HTML")
-        await q.answer(); return
+        _battles.update_one({"battle_id":item_id,"status":"pending"},{"$set":{"status":"selecting", "group_chat_id": q.message.chat_id}})
+        await q.edit_message_text("⚔️ Battle accepted! Both players must open a private chat with the bot and press Start if they haven't already. Card choices are sent privately and revealed only after both are locked in.")
+        for uid, cards in ((battle["challenger"], a), (battle["opponent"], b)):
+            try:
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text="⚔️ <b>CARD BATTLE — PRIVATE PICK</b>\n\nChoose one card below. Your opponent cannot see your options or selection. Once locked, your choice cannot be changed. The winner takes the loser's selected card.",
+                    parse_mode="HTML",
+                )
+                for c in cards[:8]:
+                    caption = f"{c.get('emoji','🃏')} <b>{c['name']}</b>\n{c['rarity']} · {c.get('element','Cosmic')} · ⚔️ Power {c['power']}\nID: <code>{c['card_id']}</code>"
+                    pick_button = InlineKeyboardMarkup([[InlineKeyboardButton("🔒 Choose this card", callback_data=f"arena:pick:{item_id}:{c['card_id']}")]])
+                    await context.bot.send_photo(
+                        chat_id=uid,
+                        photo=_card_image(c),
+                        caption=caption,
+                        parse_mode="HTML",
+                        reply_markup=pick_button,
+                    )
+            except Exception:
+                _battles.update_one({"battle_id":item_id,"status":"selecting"},{"$set":{"status":"cancelled"}})
+                await context.bot.send_message(chat_id=q.message.chat_id, text="Battle cancelled: both players must start the bot in private chat before choosing cards.")
+                await q.answer("A player hasn't started the bot in private chat.", show_alert=True); return
+        await q.answer("Battle accepted! Private card images sent to both players."); return
     await q.answer("Unknown action", show_alert=True)
 
 
