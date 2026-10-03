@@ -433,6 +433,9 @@ async def arena_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not a or not b:
             await q.edit_message_text("Battle cancelled: both players need at least one card."); await q.answer(); return
         _battles.update_one({"battle_id":item_id,"status":"pending"},{"$set":{"status":"selecting", "group_chat_id": q.message.chat_id}})
+        # Acknowledge the button click before sending multiple private card photos.
+        # Telegram callback queries expire quickly, so never answer this query again below.
+        await q.answer("Battle accepted! Sending private card choices…")
         await q.edit_message_text("⚔️ Battle accepted! Both players must open a private chat with the bot and press Start if they haven't already. Card choices are sent privately and revealed only after both are locked in.")
         for uid, cards in ((battle["challenger"], a), (battle["opponent"], b)):
             try:
@@ -454,8 +457,8 @@ async def arena_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 _battles.update_one({"battle_id":item_id,"status":"selecting"},{"$set":{"status":"cancelled"}})
                 await context.bot.send_message(chat_id=q.message.chat_id, text="Battle cancelled: both players must start the bot in private chat before choosing cards.")
-                await q.answer("A player hasn't started the bot in private chat.", show_alert=True); return
-        await q.answer("Battle accepted! Private card images sent to both players."); return
+                return
+        return
     await q.answer("Unknown action", show_alert=True)
 
 
