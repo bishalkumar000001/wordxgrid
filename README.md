@@ -69,3 +69,16 @@ The bot replies with a **Play Ludo** button that opens the web app inside Telegr
 The Flask process (`web.py`) now serves the Ludo room API at `/api/ludo/*`.
 The React web app calls this API directly. Both the bot and the web app share
 the same MongoDB `wordgrid` database. Word Grid and Paheli remain unchanged.
+
+## 🃏 Velocity Card Arena
+
+The bot includes a collectible card game stored in the same MongoDB database (`wordgrid`):
+
+- `/cardarena` — show card arena help
+- `/cardpack` — collect 3 cards (one pack every 12 hours)
+- `/mycards` — view your cards and card IDs
+- Reply to another player's message with `/cardtrade CARD_ID` — offer a card; only the recipient can accept or decline
+- Reply to another player's message with `/cardbattle` — challenge them; the opponent can accept or decline
+- `/cardtop` — leaderboard by total collection power
+
+Card collection and game records persist in MongoDB. Existing `MONGO_URL` configuration is reused; no new environment variable is required. Card battles are friendly random-card power comparisons and do not wager coins.

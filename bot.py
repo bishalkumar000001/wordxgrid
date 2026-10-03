@@ -37,6 +37,7 @@ import wordle_db as wordle_db_mod
 from spy import register_spy_handlers
 from mini_games import register_extra_game_handlers, memory_message
 from update_dedupe import install_handler_deduplication
+from card_arena import register_card_arena_handlers
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -1376,10 +1377,11 @@ def main():
     # ── Find the Spy handlers ──────────────────────────────────────────────────
     register_spy_handlers(app)
     register_extra_game_handlers(app)
+    register_card_arena_handlers(app)
 
     app.add_error_handler(error_handler)
 
-    logger.info("VelocityBots starting… (WordGrid + Paheli + Wordle + Find the Spy + Extra Games)")
+    logger.info("VelocityBots starting… (WordGrid + Paheli + Wordle + Find the Spy + Extra Games + Velocity Card Arena)")
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
