@@ -915,43 +915,95 @@ async def play_again_callback(update, context):
 # Re-registering below uses the wrapper above through the original function's
 # global lookup. The specific callback is intentionally kept for clarity.
 
-# ── Mini Bomb: hidden 5x5 path game ──────────────────────────────────────────
-# Each round has one hidden bomb per row. Players start at the bottom and must
-# safely choose one tile in each row, moving upward one row at a time.
+# ── Mini Bomb: individual hidden 5x5 path game ───────────────────────────────
+# Every player receives a separate board message in the group. The game is
+# managed in the group, but callbacks and progress belong only to that player.
+BOMB_MODES = {5: 10, 10: 30, 15: 60}
+BOMB_SESSIONS = {}  # (chat_id, user_id) -> session
+
 async def bomb_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    if not chat:
+    user = update.effective_user
+    if not chat or not user:
         return
-    await start_bomb(context.bot, chat)
+    await show_bomb_modes(context.bot, chat, user.id)
 
-async def start_bomb(bot, chat):
-    chat_id = chat.id
-    _cleanup(chat_id, "bomb")
+async def show_bomb_modes(bot, chat, user_id):
+    keyboard = [
+        [InlineKeyboardButton("💣 5 Bombs · 10 pts", callback_data=f"bombmode:{chat.id}:5")],
+        [InlineKeyboardButton("💣 10 Bombs · 30 pts", callback_data=f"bombmode:{chat.id}:10")],
+        [InlineKeyboardButton("💣 15 Bombs · 60 pts", callback_data=f"bombmode:{chat.id}:15")],
+    ]
+    await bot.send_message(
+        chat_id=chat.id,
+        text=(f"💣 <b>MINI BOMB</b> — <a href='tg://user?id={user_id}'>your game</a>\n\n"
+              "Choose your difficulty:\n"
+              "⬛ 5 bombs — reward <b>10 points</b>\n"
+              "💣 10 bombs — reward <b>30 points</b>\n"
+              "☠️ 15 bombs — reward <b>60 points</b>\n\n"
+              "Your board and progress are private to your game, even in a group.\n"
+              "You have 2 minutes to reach the top safely."),
+        parse_mode=constants.ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+async def start_bomb(bot, chat, user, bomb_count=5):
+    chat_id, user_id = chat.id, user.id
+    if bomb_count not in BOMB_MODES:
+        bomb_count = 5
+    # Only restart this user's own board; other players continue unaffected.
+    old = BOMB_SESSIONS.get((chat_id, user_id))
+    if old:
+        old["finished"] = True
+    safe_path = [random.randrange(5) for _ in range(5)]
+    safe_cells = {(r, safe_path[r]) for r in range(5)}
+    candidates = [(r, c) for r in range(5) for c in range(5) if (r, c) not in safe_cells]
+    bomb_cells = set(random.sample(candidates, bomb_count))
     session = {
         "id": uuid.uuid4().hex[:8],
-        "bombs": [random.randrange(5) for _ in range(5)],
+        "owner_id": user_id,
+        "bomb_cells": {f"{r},{c}" for r, c in bomb_cells},
+        "bomb_count": bomb_count,
+        "points": BOMB_MODES[bomb_count],
         "next_row": 4,
         "moves": {},
         "finished": False,
         "started_at": asyncio.get_running_loop().time(),
         "message_id": None,
     }
-    _set_session(chat_id, "bomb", session)
+    BOMB_SESSIONS[(chat_id, user_id)] = session
     sent = await bot.send_message(
         chat_id=chat_id,
-        text=("💣 <b>MINI BOMB</b>\n\n"
+        text=(f"💣 <b>MINI BOMB — {bomb_count} BOMBS</b>\n"
+              f"👤 Player: <a href='tg://user?id={user_id}'>{_name(user)}</a>\n\n"
+              f"🏆 Reward: <b>{session['points']} points</b>\n"
               "Choose one hidden tile per row, starting at the bottom.\n"
               "Reach the top row without hitting a bomb!\n\n"
-              "⬛ = hidden tile  ·  Each row must be cleared in order."),
+              "⬛ = hidden tile · Your clicks affect only your own board.\n"
+              "⏱ Time limit: 2 minutes."),
         parse_mode=constants.ParseMode.HTML,
-        reply_markup=_bomb_markup(chat_id, session),
+        reply_markup=_bomb_markup(chat_id, user_id, session),
     )
     session["message_id"] = sent.message_id
-    asyncio.create_task(_bomb_timeout(bot, chat_id, session["id"], sent.message_id))
+    asyncio.create_task(_bomb_timeout(bot, chat_id, user_id, session["id"], sent.message_id))
 
-async def _bomb_timeout(bot, chat_id, session_id, message_id):
+async def bomb_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    try:
+        _, raw_chat, raw_count = q.data.split(":")
+        chat_id, count = int(raw_chat), int(raw_count)
+    except (ValueError, TypeError):
+        await q.answer("Invalid game mode.", show_alert=True)
+        return
+    if not q.message or q.message.chat.id != chat_id or count not in BOMB_MODES:
+        await q.answer("Invalid game mode.", show_alert=True)
+        return
+    await q.answer("Starting your personal board…")
+    await start_bomb(context.bot, q.message.chat, q.from_user, count)
+
+async def _bomb_timeout(bot, chat_id, user_id, session_id, message_id):
     await asyncio.sleep(120)
-    session = _get_session(chat_id, "bomb")
+    session = BOMB_SESSIONS.get((chat_id, user_id))
     if not session or session.get("id") != session_id or session.get("finished"):
         return
     session["finished"] = True
@@ -959,14 +1011,14 @@ async def _bomb_timeout(bot, chat_id, session_id, message_id):
         await bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
-            text="⏰ <b>TIME'S UP!</b>\n\nThe 2-minute Mini Bomb round has ended. No points awarded.",
+            text=f"⏰ <b>TIME'S UP!</b>\n\n<a href='tg://user?id={user_id}'>Your</a> 2-minute Mini Bomb round has ended. No points awarded.",
             parse_mode=constants.ParseMode.HTML,
-            reply_markup=_bomb_markup(chat_id, session, reveal=True),
+            reply_markup=_bomb_markup(chat_id, user_id, session, reveal=True),
         )
     except TelegramError:
         pass
 
-def _bomb_markup(chat_id, session, reveal=False):
+def _bomb_markup(chat_id, user_id, session, reveal=False):
     rows = []
     for r in range(5):
         line = []
@@ -974,42 +1026,45 @@ def _bomb_markup(chat_id, session, reveal=False):
             key = f"{r},{c}"
             if key in session["moves"]:
                 label = "💥" if session["moves"][key] == "bomb" else "✅"
-            elif reveal and session["bombs"][r] == c:
+            elif reveal and key in session["bomb_cells"]:
                 label = "💣"
             else:
                 label = "⬛"
-            line.append(InlineKeyboardButton(label, callback_data=f"bomb:{chat_id}:{r}:{c}"))
+            line.append(InlineKeyboardButton(label, callback_data=f"bomb:{chat_id}:{user_id}:{r}:{c}"))
         rows.append(line)
     if session.get("finished"):
-        rows.append([InlineKeyboardButton("🔄 Play Again", callback_data=f"bombagain:{chat_id}")])
+        rows.append([InlineKeyboardButton("🔄 Play Again", callback_data=f"bombagain:{chat_id}:{user_id}")])
     return InlineKeyboardMarkup(rows)
 
 async def bomb_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     parts = q.data.split(":")
-    if len(parts) != 4:
+    if len(parts) != 5:
         await q.answer()
         return
     try:
-        chat_id, r, c = int(parts[1]), int(parts[2]), int(parts[3])
+        chat_id, owner_id, r, c = map(int, parts[1:])
     except ValueError:
         await q.answer("Invalid tile.", show_alert=True)
         return
     if not q.message or q.message.chat.id != chat_id:
         await q.answer()
         return
-    s = _get_session(chat_id, "bomb")
-    if not s or s.get("finished"):
-        await q.answer("This round has ended. Start a new game with /bomb.", show_alert=True)
+    if q.from_user.id != owner_id:
+        await q.answer("This is another player's board. Start your own with /bomb.", show_alert=True)
+        return
+    s = BOMB_SESSIONS.get((chat_id, owner_id))
+    if not s or s.get("message_id") != q.message.message_id or s.get("finished"):
+        await q.answer("This board has ended. Start a new game with /bomb.", show_alert=True)
         return
     if asyncio.get_running_loop().time() - s.get("started_at", 0) >= 120:
         s["finished"] = True
-        await q.answer("Time is up! Start a new round with /bomb.", show_alert=True)
+        await q.answer("Time is up!", show_alert=True)
         try:
             await q.edit_message_text(
                 "⏰ <b>TIME'S UP!</b>\n\nThe 2-minute Mini Bomb round has ended. No points awarded.",
                 parse_mode=constants.ParseMode.HTML,
-                reply_markup=_bomb_markup(chat_id, s, reveal=True),
+                reply_markup=_bomb_markup(chat_id, owner_id, s, reveal=True),
             )
         except TelegramError:
             pass
@@ -1017,52 +1072,59 @@ async def bomb_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if r != s["next_row"]:
         await q.answer("Move one row at a time, starting from the bottom!", show_alert=True)
         return
-    if f"{r},{c}" in s["moves"]:
+    key = f"{r},{c}"
+    if key in s["moves"]:
         await q.answer("You already selected this tile.")
         return
     await q.answer()
-    if s["bombs"][r] == c:
-        s["moves"][f"{r},{c}"] = "bomb"
+    if key in s["bomb_cells"]:
+        s["moves"][key] = "bomb"
         s["finished"] = True
         await q.edit_message_text(
-            "💥 <b>BOOM! You hit the bomb!</b>\n\nTry again and reach the top safely.",
+            f"💥 <b>BOOM! {_name(q.from_user)} hit a bomb!</b>\n\nNo points this time. Other players' boards are unaffected.",
             parse_mode=constants.ParseMode.HTML,
-            reply_markup=_bomb_markup(chat_id, s, reveal=True),
+            reply_markup=_bomb_markup(chat_id, owner_id, s, reveal=True),
         )
         return
-    s["moves"][f"{r},{c}"] = "safe"
+    s["moves"][key] = "safe"
     if r == 0:
         s["finished"] = True
-        _score(q.from_user, chat_id, f"bomb_{s['id']}", 10, "Mini Bomb escape")
+        points = s["points"]
+        _score(q.from_user, chat_id, f"bomb_{s['id']}", points, "Mini Bomb escape")
         await q.edit_message_text(
-            f"🏆 <b>YOU ESCAPED!</b>\n\n<a href='tg://user?id={q.from_user.id}'>{_name(q.from_user)}</a> reached the top safely and earned <b>+10 points</b>!\n⏱ Round limit: 2 minutes.",
+            f"🏆 <b>YOU ESCAPED!</b>\n\n<a href='tg://user?id={q.from_user.id}'>{_name(q.from_user)}</a> reached the top safely and earned <b>+{points} points</b>!\n💣 Mode: {s['bomb_count']} bombs\n⏱ Round limit: 2 minutes.",
             parse_mode=constants.ParseMode.HTML,
-            reply_markup=_bomb_markup(chat_id, s, reveal=True),
+            reply_markup=_bomb_markup(chat_id, owner_id, s, reveal=True),
         )
         return
     s["next_row"] = r - 1
     await q.edit_message_text(
-        f"💣 <b>MINI BOMB</b>\n\n✅ Safe! Now choose a tile in row <b>{s["next_row"] + 1}</b> from the top.\n\n⬛ = hidden tile  ·  Reach the top without hitting a bomb!",
+        f"💣 <b>MINI BOMB — {s['bomb_count']} BOMBS</b>\n👤 Player: <a href='tg://user?id={owner_id}'>{_name(q.from_user)}</a>\n\n✅ Safe! Now choose a tile in the next row toward the top.\n\n⬛ = hidden tile · Reward: <b>{s['points']} points</b> · Time limit: 2 minutes.",
         parse_mode=constants.ParseMode.HTML,
-        reply_markup=_bomb_markup(chat_id, s),
+        reply_markup=_bomb_markup(chat_id, owner_id, s),
     )
 
 async def bomb_again_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
     try:
-        chat_id = int(q.data.split(":")[1])
+        _, raw_chat, raw_owner = q.data.split(":")
+        chat_id, owner_id = int(raw_chat), int(raw_owner)
     except (ValueError, IndexError):
+        await q.answer()
         return
-    if q.message and q.message.chat.id == chat_id:
-        await start_bomb(context.bot, q.message.chat)
+    if not q.message or q.message.chat.id != chat_id:
+        await q.answer()
+        return
+    if q.from_user.id != owner_id:
+        await q.answer("Only the player who owns this board can restart it.", show_alert=True)
+        return
+    await q.answer()
+    await show_bomb_modes(context.bot, q.message.chat, owner_id)
 
-_original_register_bomb_handlers = register_extra_game_handlers
-async def _unused_bomb_marker():
-    pass
-
+_register_with_chain_games = register_extra_game_handlers
 def register_extra_game_handlers(app):
-    _original_register_bomb_handlers(app)
+    _register_with_chain_games(app)
     app.add_handler(CommandHandler("bomb", bomb_cmd))
-    app.add_handler(CallbackQueryHandler(bomb_callback, pattern=r"^bomb:-?\d+:\d+:\d+$"))
-    app.add_handler(CallbackQueryHandler(bomb_again_callback, pattern=r"^bombagain:-?\d+$"))
+    app.add_handler(CallbackQueryHandler(bomb_mode_callback, pattern=r"^bombmode:-?\d+:(?:5|10|15)$"))
+    app.add_handler(CallbackQueryHandler(bomb_callback, pattern=r"^bomb:-?\d+:\d+:\d+:\d+$"))
+    app.add_handler(CallbackQueryHandler(bomb_again_callback, pattern=r"^bombagain:-?\d+:\d+$"))
