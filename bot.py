@@ -38,6 +38,7 @@ from spy import register_spy_handlers
 from mini_games import register_extra_game_handlers, memory_message
 from update_dedupe import install_handler_deduplication
 from card_arena import register_card_arena_handlers
+from tic_tac_toe import register_tictactoe_handlers
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -412,7 +413,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔐 <code>/codebreaker</code> or <code>/codebreaker4</code>–<code>/codebreaker7</code> — Crack a 4–7 digit secret code\n"
         "🔤 <code>/scramble</code> — Unscramble the word\n"
         "🧠 <code>/memory</code> — Test your memory\n"
-        "🕵️ <code>/spy</code> — Find the hidden spy\n\n"
+        "🕵️ <code>/spy</code> — Find the hidden spy\n"
+        "❌ <code>/tictactoe</code> — Challenge a group member (winner gets +10 points)\n\n"
         "🏆 <b>Play • Score • Compete • Dominate</b>\n\n"
         "🚀 <b>Choose a game and let the challenge begin!</b>"
     )
@@ -1378,10 +1380,11 @@ def main():
     register_spy_handlers(app)
     register_extra_game_handlers(app)
     register_card_arena_handlers(app)
+    register_tictactoe_handlers(app)
 
     app.add_error_handler(error_handler)
 
-    logger.info("VelocityBots starting… (WordGrid + Paheli + Wordle + Find the Spy + Extra Games + Velocity Card Arena)")
+    logger.info("VelocityBots starting… (WordGrid + Paheli + Wordle + Find the Spy + Extra Games + Velocity Card Arena + Tic Tac Toe)")
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
