@@ -32,7 +32,7 @@ def _board_keyboard(game_id: str, game: dict) -> InlineKeyboardMarkup:
         for c in range(3):
             idx = r * 3 + c
             value = board[idx]
-            label = value if value else "⬜"
+            label = "❌" if value == "X" else ("🔵" if value == "O" else "⬜")
             row.append(InlineKeyboardButton(label, callback_data=f"ttt:move:{game_id}:{idx}"))
         rows.append(row)
     rows.append([InlineKeyboardButton("🛑 End match", callback_data=f"ttt:cancel:{game_id}")])
@@ -46,12 +46,12 @@ def _status(game: dict) -> str:
     o_name = o["name"] if o else "Waiting to join…"
     if not game["started"]:
         return ("🎮 <b>Tic Tac Toe challenge!</b>\n\n"
-                f"❌ X: {x_name}\n🔵 O: {o_name}\n\n"
+                f"❌ {x_name}\n🔵 {o_name}\n\n"
                 "Another member can join below. The match starts when they join.")
     turn = game["players"][game["turn"]]["name"]
     symbol = "❌" if game["turn"] == "X" else "🔵"
     return ("🎮 <b>Tic Tac Toe</b>\n\n"
-            f"❌ X: {x_name}\n🔵 O: {o_name}\n\n"
+            f"❌ {x_name}\n🔵 {o_name}\n\n"
             f"{symbol} <b>{turn}</b>'s turn")
 
 
@@ -83,8 +83,8 @@ async def cmd_tictactoe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with LOCK:
         GAMES[game_id] = game
     sent = await message.reply_text(_status(game), reply_markup=InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔵 Join as O", callback_data=f"ttt:join:{game_id}")],
-        [InlineKeyboardButton("❌ Cancel challenge", callback_data=f"ttt:cancel:{game_id}")],
+        [InlineKeyboardButton("🔵 Join", callback_data=f"ttt:join:{game_id}")],
+        [InlineKeyboardButton("🛑 Cancel challenge", callback_data=f"ttt:cancel:{game_id}")],
     ]))
     game["message_id"] = sent.message_id
 
