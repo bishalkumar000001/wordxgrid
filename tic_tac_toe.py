@@ -46,12 +46,12 @@ def _status(game: dict) -> str:
     o_name = o["name"] if o else "Waiting to join…"
     if not game["started"]:
         return ("🎮 <b>Tic Tac Toe challenge!</b>\n\n"
-                f"❌ X: {x_name}\n⭕ O: {o_name}\n\n"
+                f"❌ X: {x_name}\n🔵 O: {o_name}\n\n"
                 "Another member can join below. The match starts when they join.")
     turn = game["players"][game["turn"]]["name"]
-    symbol = "❌" if game["turn"] == "X" else "⭕"
+    symbol = "❌" if game["turn"] == "X" else "🔵"
     return ("🎮 <b>Tic Tac Toe</b>\n\n"
-            f"❌ X: {x_name}\n⭕ O: {o_name}\n\n"
+            f"❌ X: {x_name}\n🔵 O: {o_name}\n\n"
             f"{symbol} <b>{turn}</b>'s turn")
 
 
@@ -83,7 +83,7 @@ async def cmd_tictactoe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with LOCK:
         GAMES[game_id] = game
     sent = await message.reply_text(_status(game), reply_markup=InlineKeyboardMarkup([
-        [InlineKeyboardButton("🙋 Join as O", callback_data=f"ttt:join:{game_id}")],
+        [InlineKeyboardButton("🔵 Join as O", callback_data=f"ttt:join:{game_id}")],
         [InlineKeyboardButton("❌ Cancel challenge", callback_data=f"ttt:cancel:{game_id}")],
     ]))
     game["message_id"] = sent.message_id
@@ -185,7 +185,7 @@ async def cb_tictactoe(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def _board_text(board):
     def cell(v):
-        return "❌" if v == "X" else ("⭕" if v == "O" else "⬜")
+        return "❌" if v == "X" else ("🔵" if v == "O" else "⬜")
     return "\n".join("  ".join(cell(board[r * 3 + c]) for c in range(3)) for r in range(3))
 
 
