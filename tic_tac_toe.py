@@ -99,6 +99,13 @@ async def cb_tictactoe(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Invalid game action.", show_alert=True)
         return
     action, game_id = parts[1], parts[2]
+    if action == "menu":
+        await query.answer()
+        if query.message.chat.type not in ("group", "supergroup"):
+            await query.answer("Start Tic Tac Toe in a group.", show_alert=True)
+            return
+        await cmd_tictactoe(update, context)
+        return
     async with LOCK:
         game = GAMES.get(game_id)
         if not game or not game["active"]:

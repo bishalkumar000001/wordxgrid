@@ -9,7 +9,6 @@ from telegram.ext import ContextTypes, CommandHandler, MessageHandler, CallbackQ
 from telegram.error import TelegramError
 
 import database as db
-from tic_tac_toe import cmd_tictactoe
 from words import WORDS_BY_LENGTH
 from chain_words import CHAIN_WORDS, CHAIN_WORDS_BY_LENGTH
 
@@ -44,8 +43,6 @@ def _menu(chat_id):
         [InlineKeyboardButton("Memory Test", callback_data=f"xgame:memory:{chat_id}")],
         [InlineKeyboardButton("Higher/Lower", callback_data=f"xgame:higherlower:{chat_id}"),
          InlineKeyboardButton("Chain", callback_data=f"xgame:chain:{chat_id}")],
-        [InlineKeyboardButton("💣 Mini Bomb", callback_data=f"xgame:bomb:{chat_id}"),
-         InlineKeyboardButton("❌ Tic Tac Toe", callback_data=f"xgame:tictactoe:{chat_id}")],
     ])
 
 
@@ -78,9 +75,7 @@ async def game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔤 <b>Word Scramble</b> — unscramble the word first.\n"
         "🧠 <b>Memory Test</b> — remember the sequence and type it back.\n"
         "🃏 <b>Higher/Lower</b> — predict the next card.\n"
-        "🔗 <b>Chain</b> — answer with a word starting with the last letter within 15 seconds.\n"
-        "💣 <b>Mini Bomb</b> — dodge bombs and earn points.\n"
-        "❌ <b>Tic Tac Toe</b> — challenge another group member; winner earns 10 points.",
+        "🔗 <b>Chain</b> — answer with a word starting with the last letter within 15 seconds.",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=_menu(chat.id),
     )
@@ -107,8 +102,6 @@ async def start_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await start_chain(context, q.message.chat)
     elif kind == "bomb":
         await show_bomb_modes(context.bot, q.message.chat, q.from_user.id)
-    elif kind == "tictactoe":
-        await cmd_tictactoe(update, context)
     else:
         return
 

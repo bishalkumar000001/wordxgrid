@@ -232,6 +232,14 @@ async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("🧠 Memory Test", callback_data=f"xgame:memory:{chat.id}"),
         ],
+        [
+            InlineKeyboardButton("🃏 Higher/Lower", callback_data=f"xgame:higherlower:{chat.id}"),
+            InlineKeyboardButton("🔗 Chain", callback_data=f"xgame:chain:{chat.id}"),
+        ],
+        [
+            InlineKeyboardButton("💣 Mini Bomb", callback_data=f"xgame:bomb:{chat.id}"),
+            InlineKeyboardButton("❌ Tic Tac Toe", callback_data=f"ttt:menu:{chat.id}"),
+        ],
     ])
 
     await update.message.reply_text(
