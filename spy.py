@@ -445,7 +445,7 @@ async def cmd_clue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game = spy_db.get_active_game(chat.id)
     if not game or game.get("phase") != "clues": return
     if not context.args:
-        await update.effective_message.reply_text("Use: /clue <your one-word or short clue>"); return
+        await update.effective_message.reply_text("Use: /clue &lt;your one-word or short clue&gt;"); return
     user = update.effective_user
     if not any(p["user_id"] == user.id for p in game["players"]): return
     clue = " ".join(context.args).strip()
