@@ -7,6 +7,7 @@ from collections import Counter
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from telegram.error import TelegramError
+from config import OWNER_ID
 
 import database as db
 from words import WORDS_BY_LENGTH
@@ -922,6 +923,7 @@ async def play_again_callback(update, context):
 # managed in the group, but callbacks and progress belong only to that player.
 BOMB_MODES = {5: 10, 10: 30, 15: 60}
 BOMB_SESSIONS = {}  # (chat_id, user_id) -> session
+BOMB_LOOKUP = {}    # numeric Game ID -> session
 
 async def bomb_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -961,8 +963,15 @@ async def start_bomb(bot, chat, user, bomb_count=5):
     safe_cells = {(r, safe_path[r]) for r in range(5)}
     candidates = [(r, c) for r in range(5) for c in range(5) if (r, c) not in safe_cells]
     bomb_cells = set(random.sample(candidates, bomb_count))
+    # Human-friendly numeric Game ID. It is unique among all retained
+    # Mini Bomb sessions, so the bot owner can inspect a game from DM.
+    while True:
+        game_id = random.randint(10000000, 99999999)
+        if game_id not in BOMB_LOOKUP:
+            break
+
     session = {
-        "id": uuid.uuid4().hex[:8],
+        "id": str(game_id),
         "owner_id": user_id,
         "bomb_cells": {f"{r},{c}" for r, c in bomb_cells},
         "bomb_count": bomb_count,
@@ -974,6 +983,7 @@ async def start_bomb(bot, chat, user, bomb_count=5):
         "message_id": None,
     }
     BOMB_SESSIONS[(chat_id, user_id)] = session
+    BOMB_LOOKUP[session["id"]] = session
     sent = await bot.send_message(
         chat_id=chat_id,
         text=(f"💣 <b>MINI BOMB — {bomb_count} BOMBS</b>\n"
@@ -1106,6 +1116,113 @@ async def bomb_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=_bomb_markup(chat_id, owner_id, s),
     )
 
+
+async def bomb_inspect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Owner-only Mini Bomb board inspector, intended for the bot DM."""
+    msg = update.effective_message
+    chat = update.effective_chat
+    user = update.effective_user
+    if not msg or not chat or not user:
+        return
+
+    if user.id != OWNER_ID:
+        await msg.reply_text("⛔ This command is only available to the bot owner.")
+        return
+
+    if chat.type != "private":
+        await msg.reply_text("🔒 Use /bombcheck <Game ID> in the bot's private DM.")
+        return
+
+    if not context.args:
+        await msg.reply_text(
+            "💣 <b>Mini Bomb Inspector</b>\n\n"
+            "Send the Game ID like:\n"
+            "<code>/bombcheck 12345678</code>\n\n"
+            "The player can find the Game ID on their Mini Bomb board.",
+            parse_mode=constants.ParseMode.HTML,
+        )
+        return
+
+    game_id = context.args[0].strip()
+    session = BOMB_LOOKUP.get(game_id)
+    if not session:
+        await msg.reply_text(
+            f"❌ Game ID <code>{game_id}</code> was not found.\n"
+            "Only games retained by the running bot process can be inspected.",
+            parse_mode=constants.ParseMode.HTML,
+        )
+        return
+
+    await msg.reply_text(
+        f"🕵️ <b>MINI BOMB — OWNER INSPECTOR</b>\n\n"
+        f"🆔 Game ID: <code>{session['id']}</code>\n"
+        f"👤 Player ID: <code>{session['owner_id']}</code>\n"
+        f"💣 Bombs: <b>{session['bomb_count']}</b>\n"
+        f"🎯 Reward: <b>{session['points']} points</b>\n"
+        f"📌 Status: <b>{'Finished' if session.get('finished') else 'Active'}</b>\n\n"
+        "💣 = bomb · 🟩 = safe\n"
+        "Tap any tile for its exact position.",
+        parse_mode=constants.ParseMode.HTML,
+        reply_markup=_bomb_inspector_markup(session),
+    )
+
+
+def _bomb_inspector_markup(session):
+    """Render the complete hidden board for the owner only."""
+    rows = []
+    for r in range(5):
+        line = []
+        for c in range(5):
+            key = f"{r},{c}"
+            label = "💣" if key in session["bomb_cells"] else "🟩"
+            line.append(
+                InlineKeyboardButton(
+                    label,
+                    callback_data=f"bombinspect:{session['id']}:{r}:{c}",
+                )
+            )
+        rows.append(line)
+    return InlineKeyboardMarkup(rows)
+
+
+async def bomb_inspect_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    user = q.from_user
+    if not user or user.id != OWNER_ID:
+        await q.answer("⛔ Owner only.", show_alert=True)
+        return
+
+    if not q.message or q.message.chat.type != "private":
+        await q.answer("Use the inspector in the bot DM.", show_alert=True)
+        return
+
+    parts = q.data.split(":")
+    if len(parts) != 4:
+        await q.answer("Invalid inspection button.", show_alert=True)
+        return
+
+    _, game_id, raw_r, raw_c = parts
+    session = BOMB_LOOKUP.get(game_id)
+    if not session:
+        await q.answer("This Game ID is no longer available.", show_alert=True)
+        return
+
+    try:
+        r, c = int(raw_r), int(raw_c)
+    except ValueError:
+        await q.answer("Invalid tile.", show_alert=True)
+        return
+
+    if not (0 <= r < 5 and 0 <= c < 5):
+        await q.answer("Invalid tile.", show_alert=True)
+        return
+
+    key = f"{r},{c}"
+    if key in session["bomb_cells"]:
+        await q.answer(f"💣 BOMB — row {r + 1}, column {c + 1}", show_alert=True)
+    else:
+        await q.answer(f"🟩 SAFE — row {r + 1}, column {c + 1}", show_alert=True)
+
 async def bomb_again_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     try:
@@ -1130,3 +1247,5 @@ def register_extra_game_handlers(app):
     app.add_handler(CallbackQueryHandler(bomb_mode_callback, pattern=r"^bombmode:-?\d+:(?:5|10|15)$"))
     app.add_handler(CallbackQueryHandler(bomb_callback, pattern=r"^bomb:-?\d+:\d+:\d+:\d+$"))
     app.add_handler(CallbackQueryHandler(bomb_again_callback, pattern=r"^bombagain:-?\d+:\d+$"))
+    app.add_handler(CommandHandler("bombcheck", bomb_inspect_cmd))
+    app.add_handler(CallbackQueryHandler(bomb_inspect_callback, pattern=r"^bombinspect:\d{8}:\d:\d$"))
