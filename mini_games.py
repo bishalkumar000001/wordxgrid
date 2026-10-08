@@ -987,7 +987,8 @@ async def start_bomb(bot, chat, user, bomb_count=5):
     sent = await bot.send_message(
         chat_id=chat_id,
         text=(f"💣 <b>MINI BOMB — {bomb_count} BOMBS</b>\n"
-              f"👤 Player: <a href='tg://user?id={user_id}'>{_name(user)}</a>\n\n"
+              f"👤 Player: <a href='tg://user?id={user_id}'>{_name(user)}</a>\n"
+              f"🆔 Game ID: <code>{session['id']}</code>\n\n"
               f"🏆 Reward: <b>{session['points']} points</b>\n"
               "Choose one hidden tile per row, starting at the bottom.\n"
               "Reach the top row without hitting a bomb!\n\n"
@@ -1111,7 +1112,11 @@ async def bomb_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     s["next_row"] = r - 1
     await q.edit_message_text(
-        f"💣 <b>MINI BOMB — {s['bomb_count']} BOMBS</b>\n👤 Player: <a href='tg://user?id={owner_id}'>{_name(q.from_user)}</a>\n\n✅ Safe! Now choose a tile in the next row toward the top.\n\n⬛ = hidden tile · Reward: <b>{s['points']} points</b> · Time limit: 2 minutes.",
+        f"💣 <b>MINI BOMB — {s['bomb_count']} BOMBS</b>\n"
+        f"👤 Player: <a href='tg://user?id={owner_id}'>{_name(q.from_user)}</a>\n"
+        f"🆔 Game ID: <code>{s['id']}</code>\n\n"
+        f"✅ Safe! Now choose a tile in the next row toward the top.\n\n"
+        f"⬛ = hidden tile · Reward: <b>{s['points']} points</b> · Time limit: 2 minutes.",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=_bomb_markup(chat_id, owner_id, s),
     )
