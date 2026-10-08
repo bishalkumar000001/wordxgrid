@@ -7,7 +7,7 @@ from collections import Counter
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from telegram.error import TelegramError
-from config import OWNER_ID
+from config import OWNER_ID, SUDO_USERS
 
 import database as db
 from words import WORDS_BY_LENGTH
@@ -1130,8 +1130,8 @@ async def bomb_inspect_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not msg or not chat or not user:
         return
 
-    if user.id != OWNER_ID:
-        await msg.reply_text("⛔ This command is only available to the bot owner.")
+    if user.id not in SUDO_USERS:
+        await msg.reply_text("⛔ This command is only available to the bot owner or sudo users.")
         return
 
     if chat.type != "private":
@@ -1193,8 +1193,8 @@ def _bomb_inspector_markup(session):
 async def bomb_inspect_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     user = q.from_user
-    if not user or user.id != OWNER_ID:
-        await q.answer("⛔ Owner only.", show_alert=True)
+    if not user or user.id not in SUDO_USERS:
+        await q.answer("⛔ Owner/Sudo only.", show_alert=True)
         return
 
     if not q.message or q.message.chat.type != "private":
