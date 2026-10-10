@@ -51,6 +51,14 @@ def upsert_user(user_id: int, username: str, first_name: str, last_name: str = "
     )
 
 
+
+
+def get_all_user_ids() -> list:
+    """Return all known Telegram user IDs for owner broadcasts."""
+    docs = _get_db().users.find({}, {"user_id": 1, "_id": 0})
+    return [int(doc["user_id"]) for doc in docs if doc.get("user_id")]
+
+
 # ── Games ─────────────────────────────────────────────────────────────────────
 
 def create_game(

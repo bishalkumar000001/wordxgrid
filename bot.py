@@ -1127,119 +1127,139 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── /broadcast ───────────────────────────────────────────────────────────────
 
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Broadcast a safe HTML-escaped text message to all active groups.
+    """Owner broadcast, matching Bingo: send to all known players and groups.
 
-    Handles Telegram rate limits with retries and removes inactive chats when
-    Telegram reports that the bot is no longer present.
+    Reply to any Telegram message (text, photo, video, document, etc.) with
+    /broadcast to copy it unchanged, or use /broadcast <text> for plain text.
     """
     user = update.effective_user
+    message = update.effective_message
 
-    if not is_sudo(user.id):
-        await update.message.reply_text("❌ You are not authorised to use this command.")
+    if not user or not is_sudo(user.id):
+        if message:
+            await message.reply_text("❌ You are not authorised to use this command.")
         return
 
-    reply_msg = update.message.reply_to_message
-    broadcast_text = None
+    source = message.reply_to_message if message else None
+    text_arg = " ".join(context.args).strip() if context.args else ""
 
-    if context.args:
-        broadcast_text = " ".join(context.args)
-    elif reply_msg:
-        # Support both normal text replies and media captions.
-        broadcast_text = reply_msg.text or reply_msg.caption
-
-    if not broadcast_text:
-        await update.message.reply_text(
-            "⚠️ <b>How to use /broadcast</b>\n\n"
-            "• <code>/broadcast Your message here</code>\n"
-            "• Or reply to a text/photo/video message with <code>/broadcast</code>",
+    if not source and not text_arg:
+        await message.reply_text(
+            "📡 <b>WordXGrid Broadcast</b>\n\n"
+            "• Reply to any message with <code>/broadcast</code> to copy it to all players and groups.\n"
+            "• Or send <code>/broadcast Your message here</code> for a text broadcast.",
             parse_mode=constants.ParseMode.HTML,
         )
         return
 
-    groups = db.get_all_groups()
-    if not groups:
-        await update.message.reply_text("⚠️ No active groups found in the database yet.")
-        return
+    # Text commands are sent as plain text, escaping user input because this
+    # bot uses HTML parse mode in its default configuration.
+    safe_text = html.escape(text_arg, quote=False)
+    try:
+        user_ids = db.get_all_user_ids()
+    except Exception:
+        logger.exception("Could not fetch users for broadcast")
+        user_ids = []
 
-    # User-supplied broadcast text MUST be escaped because the bot uses HTML
-    # parse mode globally. This prevents raw <b>, <blockquote>, <code>, etc.
-    # from being interpreted as Telegram HTML and causing BadRequest errors.
-    safe_text = html.escape(broadcast_text, quote=False)
+    try:
+        groups = db.get_all_groups()
+    except Exception:
+        logger.exception("Could not fetch groups for broadcast")
+        groups = []
 
-    status_msg = await update.message.reply_text(
-        f"📡 Broadcasting to <b>{len(groups)}</b> groups…",
+    # Also include groups where games have been played, even if group tracking
+    # has not yet been populated by the membership handler.
+    group_ids = {int(g["chat_id"]) for g in groups if g.get("chat_id")}
+    try:
+        game_docs = list(db._get_db().games.distinct("group_id"))
+        group_ids.update(int(gid) for gid in game_docs if gid)
+    except Exception:
+        pass
+
+    status_msg = await message.reply_text(
+        f"📡 Broadcasting to <b>{len(user_ids)}</b> players and "
+        f"<b>{len(group_ids)}</b> Telegram groups…",
         parse_mode=constants.ParseMode.HTML,
     )
 
-    sent = 0
-    failed = 0
-    blocked = 0
+    sent_users = failed_users = sent_groups = failed_groups = 0
+    blocked_users = blocked_groups = 0
 
-    for group in groups:
-        chat_id = group["chat_id"]
-        delivered = False
-
-        # Telegram can temporarily reject bursts with FLOOD_WAIT/RetryAfter.
-        # Retry the same group instead of counting it as a permanent failure.
+    async def deliver(chat_id: int):
+        """Retry temporary Telegram rate limits, return sent/blocked/failed."""
         for attempt in range(3):
             try:
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"📢 <b>Broadcast Message</b>\n\n{safe_text}",
-                    parse_mode=constants.ParseMode.HTML,
-                )
-                sent += 1
-                delivered = True
-                break
-
-            except RetryAfter as e:
-                wait = min(max(int(e.retry_after), 1), 30)
-                logger.warning(
-                    "Broadcast rate limited for %s; retrying in %ss (attempt %s/3)",
-                    chat_id, wait, attempt + 1,
-                )
-                await asyncio.sleep(wait)
-
-            except TelegramError as e:
-                err = str(e).lower()
-                if any(x in err for x in (
-                    "bot was kicked", "chat not found", "blocked by the user",
-                    "bot is not a member", "have no rights to send a message",
-                    "not enough rights to send text",
-                    "not enough rights to send messages",
-                )):
-                    db.remove_group(chat_id)
-                    blocked += 1
+                if source:
+                    await source.copy(chat_id=chat_id)
                 else:
-                    failed += 1
-                logger.warning("Broadcast failed for %s: %s", chat_id, e)
-                break
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=safe_text,
+                        parse_mode=constants.ParseMode.HTML,
+                    )
+                return "sent"
+            except RetryAfter as exc:
+                if attempt == 2:
+                    logger.warning("Broadcast retry limit reached for %s", chat_id)
+                    return "failed"
+                wait = min(max(int(exc.retry_after), 1), 30)
+                await asyncio.sleep(wait)
+            except TelegramError as exc:
+                err = str(exc).lower()
+                if any(term in err for term in (
+                    "bot was blocked", "blocked by the user", "chat not found",
+                    "bot was kicked", "bot is not a member", "not enough rights",
+                    "have no rights to send", "user is deactivated",
+                )):
+                    return "blocked"
+                logger.warning("Broadcast failed for %s: %s", chat_id, exc)
+                return "failed"
+            except Exception:
+                logger.exception("Unexpected broadcast failure for %s", chat_id)
+                return "failed"
+        return "failed"
 
-            except Exception as e:
-                failed += 1
-                logger.exception("Unexpected broadcast failure for %s: %s", chat_id, e)
-                break
+    for uid in user_ids:
+        result = await deliver(int(uid))
+        if result == "sent":
+            sent_users += 1
+        elif result == "blocked":
+            blocked_users += 1
+        else:
+            failed_users += 1
+        await asyncio.sleep(0.05)
 
-        if not delivered and attempt == 2:
-            failed += 1
+    for gid in group_ids:
+        result = await deliver(gid)
+        if result == "sent":
+            sent_groups += 1
+        elif result == "blocked":
+            blocked_groups += 1
+            db.remove_group(gid)
+        else:
+            failed_groups += 1
+        await asyncio.sleep(0.10)
 
-        # A small gap prevents avoidable flood-control errors between groups.
-        await asyncio.sleep(0.15)
-
-    total = len(groups)
-    await status_msg.edit_text(
-        f"📡 <b>Broadcast Complete!</b>\n\n"
-        f"✅ Sent: <b>{sent}</b>\n"
-        f"🚫 Removed/Unavailable: <b>{blocked}</b>\n"
-        f"❌ Failed: <b>{failed}</b>\n"
-        f"📊 Total: <b>{total}</b> groups",
-        parse_mode=constants.ParseMode.HTML,
-    )
+    try:
+        await status_msg.edit_text(
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "📡 <b>Broadcast Complete!</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"👤 <b>Player DMs</b>\n📨 Sent: <b>{sent_users}</b>\n"
+            f"🚫 Blocked/unavailable: <b>{blocked_users}</b>\n❌ Failed: <b>{failed_users}</b>\n\n"
+            f"👥 <b>Telegram Groups</b>\n📨 Sent: <b>{sent_groups}</b>\n"
+            f"🚫 Removed/unavailable: <b>{blocked_groups}</b>\n❌ Failed: <b>{failed_groups}</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━",
+            parse_mode=constants.ParseMode.HTML,
+        )
+    except TelegramError:
+        logger.exception("Could not update broadcast status message")
 
     await log_to_group(
         context.application,
         f"📡 Broadcast by <a href='tg://user?id={user.id}'>{html.escape(display_name(user))}</a>\n"
-        f"✅ {sent} sent · 🚫 {blocked} unavailable · ❌ {failed} failed",
+        f"👤 Players: {sent_users} sent, {failed_users} failed, {blocked_users} unavailable\n"
+        f"👥 Groups: {sent_groups} sent, {failed_groups} failed, {blocked_groups} unavailable",
     )
 
 
